@@ -74,7 +74,7 @@ Purpose: establish the project repository and deployment foundations through sma
 ### Subsequent, separately scoped Phase 2 tasks
 - **Express on Render:** create and deploy a minimal Express + TypeScript service; verify service health, build/start behaviour, environment-variable handling and logs.
 - **Render PostgreSQL and Prisma:** confirm database plan, region, connection limits and backup/restore capabilities; configure Prisma Client and Prisma Migrate; verify connectivity and migration workflow.
-- **Frontend/API transport and browser security:** confirm intended frontend/API domain arrangement and origins; configure and verify CORS transport, then separately validate session-cookie attributes and CSRF enforcement when the session design is implemented.
+- **Frontend/API transport and browser security:** implement and verify the approved DEC-027 BFF request path: browser requests use same-origin Next.js route handlers, and Next.js calls Express through a server-only HTTPS transport. Confirm the final domain/origins. Browser CORS is not required for the normal BFF path and is not an Express security boundary; handle any separately approved direct browser/API consumer explicitly. Design and validate session-cookie attributes and CSRF enforcement separately before authentication implementation.
 - Measure relevant API/database latency and document cold-start, region and service-availability behaviour as part of the appropriate hosting validation tasks.
 
 These later tasks are not prerequisites or acceptance criteria for PH-SETUP-001. Each must receive its own bounded task ID, scope, dependencies, acceptance criteria and verification plan before implementation.
@@ -217,7 +217,7 @@ Exit criteria:
 
 - Configure production environment variables.
 - Deploy frontend and API.
-- Configure domain, HTTPS, cookies, CORS and security headers.
+- Configure the approved BFF domain/origin arrangement, HTTPS, cookies, CSRF controls and security headers; configure CORS only for any separately approved direct browser/API consumer.
 - Configure Cloudinary and ZeptoMail production credentials.
 - Run migrations and seed fictional demo content safely.
 - Verify concept notices and fictional content.

@@ -90,12 +90,12 @@ Current boundary: local setup and verification only. Deployment is pending.
 
 **PH-SETUP-004 — Frontend/backend communication design**
 
-- Decide browser-direct versus Next.js-server-mediated API requests.
-- Define frontend and backend origins.
-- Define API base URL configuration.
-- Define communication and error conventions.
-- Resolve CORS, credentials, cookie and CSRF implications.
-- Verify HTTPS communication.
+- Approved request path: browser application requests use same-origin Next.js route handlers; Next.js calls Express through a server-only HTTPS transport (DEC-027).
+- Define final frontend/backend origins and API base URL configuration.
+- Define communication and error conventions, including safe upstream status/error propagation.
+- Design the cookie ownership/forwarding contract and CSRF/origin-validation controls before implementing authentication.
+- Verify the BFF request flow over HTTPS. Browser CORS is not required for the normal same-origin path and does not protect Express from direct callers.
+- Decide preview deployment policy and whether any infrastructure/network restrictions on direct Express access are required.
 
 ### Phase 3 — Backend domain and API design
 
@@ -144,7 +144,7 @@ Current boundary: local setup and verification only. Deployment is pending.
 - Ownership isolation.
 - Session security.
 - CSRF controls.
-- CORS configuration.
+- CORS only if required for a separately approved direct browser/API consumer; never as an authorization boundary.
 - Rate limiting.
 - Upload restrictions.
 - Data retention.
@@ -343,7 +343,7 @@ Exit criteria: the frontend and backend work together without violating the appr
 
 - Session security.
 - CSRF.
-- CORS.
+- CORS only for any separately approved direct browser/API consumer; verify that it is not treated as an authorization boundary.
 - Input validation.
 - Authorization.
 - Upload restrictions.
@@ -437,13 +437,13 @@ The workflow is:
 
 ## 5. Architecture decisions that must remain visible
 
-The browser-to-Express versus Next.js-server-mediated request path remains unresolved.
+The browser-to-Express versus Next.js-server-mediated request-path choice is resolved by DEC-027 in favour of Next.js server-mediated communication (BFF). Implementation, final origins and dependent cookie/CSRF settings remain to be designed and validated.
 
 Other dependent decisions include:
 
 - Frontend and backend origins.
 - Cookie configuration.
-- CORS.
+- CORS only if required for a separately approved direct browser/API consumer.
 - CSRF.
 - Database plan and region.
 - Connection pooling.

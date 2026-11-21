@@ -5,7 +5,7 @@
 **Project:** Fictional Nigerian real-estate listings platform  
 **Requirements baseline:** FRS v1.2
 
-The original FRS v1.0 PDF is historical and unchanged. The architecture below records the approved direction; it does not imply that deployment, provider plans, transport topology or security configuration have already been validated.
+The original FRS v1.0 PDF is historical and unchanged. The architecture below records the approved direction; it does not imply that deployment, provider plans or detailed security configuration have already been validated.
 
 ---
 
@@ -20,14 +20,13 @@ The original FRS v1.0 PDF is historical and unchanged. The architecture below re
 flowchart TD
     U[Visitor / Agent / Administrator] --> B[Browser]
     B --> VX[Vercel / Next.js + TypeScript]
-    B -. browser-direct API path: undecided .-> API[Express + TypeScript on Render]
-    VX -. server-mediated API path: undecided .-> API
+    VX -->|same-origin route handlers / server-only HTTPS transport| API[Express + TypeScript on Render]
     API --> DB[(Render PostgreSQL)]
     API --> IMG[Cloudinary]
     API --> MAIL[ZeptoMail]
 ```
 
-The browser loads the Next.js application. The exact path for application requests to Express (browser-direct or Next.js server-mediated) remains an open decision; the dotted paths in the diagram are alternatives, not simultaneous approved flows. Protected business operations are enforced by Express. The browser must never connect directly to PostgreSQL or receive database credentials.
+The browser loads Next.js and sends application requests through same-origin Next.js route handlers. Next.js communicates with Express through a server-only transport over HTTPS. Express remains authoritative for authentication, authorization, ownership checks and business logic. PostgreSQL is accessed only through the backend; the browser must never connect directly to PostgreSQL or receive database credentials. BFF routing and CORS are not security boundaries: Express must independently authenticate and authorize protected requests, and may remain directly reachable unless separately restricted through infrastructure or network controls.
 
 ## 2. Responsibilities
 
@@ -36,7 +35,7 @@ The browser loads the Next.js application. The exact path for application reques
 - Server-side rendering for public SEO-sensitive pages.
 - Route/layout composition, page metadata and social previews.
 - Client-side interactions and form usability.
-- Communicates with Express API over HTTPS.
+- Communicates with Express through server-only HTTPS transport; browser requests use same-origin Next.js route handlers.
 - Does not own authoritative authorization or business rules.
 
 ### Express backend
@@ -93,7 +92,7 @@ A bounded initial deployment validation is still required as PH-SETUP-001 — Ne
 8. Environment variables can be configured correctly, with secrets kept server-side and no secret values exposed in the browser bundle or rendered client output.
 9. Record Vercel plan eligibility, applicable usage limits and constraints for the intended portfolio/demo use.
 
-This validation does not prove the full authentication or frontend/API integration design. Validate cookie, CORS, CSRF and API communication separately before implementing production authentication.
+This validation does not prove the full authentication or frontend/API integration design. Validate the approved BFF API communication and separately review cookie and CSRF design before implementing production authentication. Browser CORS is relevant only if a separate direct browser/API consumer is approved.
 
 Vercel plan eligibility, usage limits and current terms must be checked against the intended portfolio/demo use at deployment time. Do not assume a free plan is suitable for commercial use.
 
@@ -103,7 +102,11 @@ Preferred domain arrangement, subject to domain availability and provider config
 - `www.<project-domain>` — Next.js frontend
 - `api.<project-domain>` — Express API
 
-Use HTTPS. Configure CORS with an explicit allowlist, not wildcard origins with credentials. Cookie domain, Secure, HttpOnly and SameSite settings must match the final deployment arrangement. Protect state-changing requests with CSRF controls, including origin validation and appropriate cookie policy. Do not assume that different subdomains are the same origin; they are different origins even when they may be same-site.
+The exact custom domain and final deployed origins remain undecided. Browser requests to application functionality go to same-origin Next.js route handlers; Next.js calls Express over HTTPS using server-only transport. Do not implement an unrestricted generic proxy that forwards arbitrary browser requests to Express.
+
+The normal same-origin BFF path does not require browser CORS to Express. CORS is not an authorization or network security boundary and does not protect Express from direct callers. Unless separately restricted through infrastructure or network controls, the Express service may still be directly reachable and must independently authenticate and authorize protected requests. If direct browser access is separately introduced or required, its CORS policy must use an explicit allowlist and never wildcard origins with credentials.
+
+State-changing requests require CSRF protection; same-origin BFF routing does not eliminate CSRF risk. Cookie Domain, Path, Secure and SameSite attributes, cookie ownership and forwarding behaviour, session refresh/rotation behaviour, CSRF mechanism and origin validation must match the final deployment arrangement and remain subject to later design and explicit review. Do not assume that different subdomains are the same origin; they are different origins even when they may be same-site.
 
 ## 6. Authentication and session model
 
@@ -111,7 +114,9 @@ Approved: PostgreSQL-backed server-managed sessions.
 
 - Generate cryptographically secure, unpredictable opaque session tokens.
 - Store only a cryptographic hash of the token in PostgreSQL.
-- Set the browser cookie as HttpOnly, Secure in HTTPS environments and an explicitly chosen SameSite mode.
+- The session token is opaque. The browser stores it in a cookie marked HttpOnly, which browser JavaScript must never be able to read or access. The Next.js server handles forwarding the credential to Express according to the future documented cookie/session contract.
+- Cookie creation, forwarding, refresh, rotation and revocation must follow one documented contract. Do not blindly forward Express `Set-Cookie` headers across origins.
+- Set the browser cookie as Secure in HTTPS environments and with explicitly chosen Domain, Path and SameSite attributes.
 - Enforce 12-hour inactivity expiry and seven-day absolute expiry.
 - Revoke immediately on logout and agent deactivation.
 - Revoke/rotate sessions on relevant security events, with exact policy defined during implementation.
@@ -186,11 +191,17 @@ The exact Render PostgreSQL plan features, limits, backup options and restore pr
 
 ## 12. Open technical decisions
 
-The following transport-topology question must be resolved before authentication and cross-origin session work: **Will browser-side code call the Express API directly, or will relevant requests be mediated by the Next.js server (for example, through a server-side proxy/BFF)?** The current architecture describes Next.js-to-Express communication, while the risk register also identifies browser-to-API CORS transport. These descriptions do not yet establish one final request path. Do not implement cookie/CORS/CSRF settings until the request path, deployed origins and credential flow are explicitly agreed.
+The request-path choice is resolved by DEC-027: browser requests use same-origin Next.js route handlers and Next.js calls Express through a server-only HTTPS transport. This approval does not finalize deployment origins or detailed authentication/security settings. Do not implement those settings until their remaining decisions and contracts are explicitly reviewed.
 
 
 - Initial Vercel deployment validation result and selected plan/usage constraints.
-- API request path (browser-direct versus Next.js server-mediated), final domain and cookie/CORS/CSRF configuration.
+- Final custom domain and deployed origins.
+- Cookie Domain, Path, Secure and SameSite attributes; cookie ownership and forwarding behaviour between Next.js and Express.
+- Session refresh and rotation behaviour across the BFF.
+- CSRF mechanism, token strategy and origin validation.
+- Preview deployment and environment policy.
+- Any infrastructure/network restrictions on direct access to Express.
+- Whether any separately approved direct browser/API consumer needs CORS configuration.
 - Express Render service plan and region.
 - Render PostgreSQL region, plan, connection URL/limits and backup capabilities.
 - Prisma connection/pooling configuration for the selected deployment.
@@ -234,6 +245,24 @@ The following transport-topology question must be resolved before authentication
 | DEC-024 | Listing form | Structured form with required fields mandatory, optional fields available and conditional fields by property type | Approved direction | Improve data quality; backend validation remains authoritative. |
 | DEC-025 | Backup policy | Independent weekly exports for demo and before major migrations; production should have stronger automated backup/PITR | Approved direction | Provider restore window alone is insufficient. |
 | DEC-026 | Original FRS and consolidated baseline | Preserve the original v1.0 PDF unchanged; maintain the consolidated current requirements baseline as FRS v1.2, retaining the v1.1 planning clarifications and v1.2 hosting change history | Approved | Maintains historical source integrity and traceability. |
+| DEC-027 | Frontend/backend communication | Next.js server-mediated communication (BFF) | Approved | Browser requests use same-origin Next.js route handlers; Next.js uses a server-only HTTPS transport to Express. See conditions below; this does not approve detailed cookie, CSRF, domain or network settings. |
+
+### DEC-027 — Approved conditions and implications
+
+Approved by the project owner on 2026-11-21 to resolve OPEN-009.
+
+- Browser requests to application functionality go through same-origin Next.js route handlers. Next.js communicates with Express through a server-only transport over HTTPS.
+- Express remains authoritative for authentication, authorization, ownership checks and business logic. PostgreSQL is accessed only through the backend; database credentials must never reach the browser.
+- The session token is opaque. The browser stores it in a cookie marked HttpOnly, which browser JavaScript must never be able to read or access. The Next.js server handles forwarding the credential to Express according to the future documented cookie/session contract. Cookie creation, forwarding, refresh, rotation and revocation must follow one documented contract; do not blindly forward Express `Set-Cookie` headers across origins.
+- State-changing requests require CSRF protection; same-origin BFF routing does not eliminate CSRF risk.
+- Do not implement an unrestricted generic proxy forwarding arbitrary browser requests to Express.
+- Express must independently authenticate and authorize protected requests. BFF routing and CORS are not security boundaries. Unless separately restricted through infrastructure or network controls, Express may still be directly reachable; do not assume BFF routing prevents direct API calls.
+
+**Alternatives and history:** The previously open alternative was browser-direct Express API requests. The project owner selected the BFF instead; browser-direct access is not the selected application request path. This decision does not prohibit separately approved API consumers or establish that Express is network-private.
+
+**Rationale:** A same-origin browser-facing route boundary avoids requiring browser CORS for the normal application request path and centralizes frontend-to-API transport. It supports the Next.js public site and future Agent and Administration portals while preserving the approved separation of concerns: Express remains the authority for protected operations. The BFF adds a trusted server intermediary and cookie-forwarding responsibilities, so it must not become an authorization shortcut or unrestricted proxy. Direct reachability of Express remains a separate infrastructure question.
+
+**Still undecided:** custom domain and final deployed origins; cookie Domain, Path, Secure and SameSite attributes; cookie ownership and forwarding behaviour between Next.js and Express; session refresh/rotation behaviour across the BFF; CSRF mechanism, token strategy and origin validation; preview deployment and environment policy; and infrastructure/network restrictions on direct Express access. These require later design and explicit review.
 
 ## Hosting decision change history
 
@@ -251,7 +280,7 @@ The following transport-topology question must be resolved before authentication
 | OPEN-006 | Backups | Select independent storage destination and implement restore drill | Before production acceptance |
 | OPEN-007 | Email retries | Choose persisted delivery-status/retry design or transactional outbox | Backend design |
 | OPEN-008 | Session lifecycle | Define rotation/revocation triggers beyond logout/deactivation | Authentication design |
-| OPEN-009 | API request path | Decide browser-direct Express calls versus Next.js server-mediated calls; document origins, credentials and implications before CORS/cookie/CSRF implementation | Before authentication and transport implementation |
+| OPEN-009 | API request path | Resolved by DEC-027: browser requests use same-origin Next.js route handlers; Next.js communicates with Express through server-only HTTPS transport. Final origins and implementation details remain open under OPEN-002/OPEN-008 and the listed DEC-027 follow-ups. | Approved 2026-11-21; implement after dependent design review |
 
 ## Decision-change procedure
 
