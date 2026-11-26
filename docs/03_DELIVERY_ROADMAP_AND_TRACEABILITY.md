@@ -1,333 +1,115 @@
-# Prime Haven Properties — Delivery Roadmap and Requirements Traceability
+# Prime Haven Properties - Delivery and Requirements Traceability
 
-**Document type:** Delivery planning and traceability register  
-**Status:** Phase 1 complete; Phase 2 preparation only; implementation has not started  
-**Project:** Fictional Nigerian real-estate listings platform  
-**Requirements baseline:** FRS v1.2
+**Baseline:** [FRS v1.3](01_REQUIREMENTS_BASELINE_FRS_v1.2.md) / [approved scope record](PRIME_HAVEN_APPROVED_SCOPE_DECISIONS.md)
 
-This document describes planned work and planned verification. It is not evidence that a task, implementation, deployment or test has been completed. Phase and task status must be updated only when supported by reviewable evidence.
+**Status:** Scope audit complete; synchronized documentation prepared for review. Entries below are planned coverage, not implementation/test evidence.
 
----
+## 1. Delivery coordination
 
-# 1. Development Roadmap
+[DOC-05](05_MASTER_IMPLEMENTATION_ROADMAP.md) is the sole task/phase/status register. This file owns requirement IDs, REV coverage and planned verification. Preserve previous requirement IDs; update their meaning only for explicit approved supersession. Retired revision/unread/CSV/banner mechanisms have no active implementation tasks.
 
-**Status:** Proposed roadmap; no implementation has started.  
-**Rule:** Do not begin a milestone until its prerequisites and acceptance criteria are satisfied.
+Canonical sequence: foundations -> domain/API/workflow/security design -> backend -> frontend -> integration -> quality -> release. API/workflow/security design can progress while deployment validation remains pending. Task-level dependencies in DOC-05 control execution; no automatic next task.
 
-## Phase 1 — Requirements analysis and technical planning
+PH-DESIGN-001 covers DOC-06/07. PH-DESIGN-002 means API contracts; PH-DESIGN-003 means workflows; PH-DESIGN-004 means security. Future Prisma implementation is PH-DATA-001. Prior conflicting labels and original phase numbering remain only in history.
 
-**Current phase: Phase 1 complete; preparing Phase 2 — Project Setup and Deployment.**
+## 2. Requirement ID conventions and active coverage
 
-Deliverables:
-- Approved consolidated requirements baseline (FRS v1.2), based on the original FRS v1.0 plus approved planning clarifications and hosting change.
-- Project overview.
-- Technical architecture.
-- Decision log.
-- Requirements traceability.
-- Risk register.
-- Development roadmap.
+FR-PUB/AGT/ADM/LST/INQ/AUTH/DATA identify functional requirements. NFR-SEC/PERF/A11Y/OPS/SEO identify quality requirements. References below use current FRS section numbers. Existing selective IDs are retained and supplemented; full acceptance is FRS Section 13, not just this table.
 
-Exit criteria:
-- Major FRS contradictions and decisions are recorded.
-- User understands and approves the architecture direction.
-- Open technical validations are explicitly identified.
-- Planning pack reviewed and accepted.
-
-## Phase 2 — Project Setup and Deployment
-
-Purpose: establish the project repository and deployment foundations through small, independently verifiable setup tasks. The first task validates only the minimal Next.js/Vercel path. Backend hosting, database connectivity and browser/API security integration remain separate subsequent tasks.
-
-### PH-SETUP-001 — Next.js Setup and Vercel Deployment
-
-**Objective:** Create and deploy a minimal Next.js + TypeScript foundation using Vercel's native Next.js integration. This is a setup/deployment smoke test, not a framework compatibility investigation or full product implementation.
-
-**Prerequisites:** Before PH-SETUP-001 begins, establish the local project workspace, confirm the GitHub repository status and connect the repository to the local project. Record the actual workspace and repository details in the task execution notes; they are execution prerequisites, not permanent product requirements.
-
-**Scope:**
-1. Create a minimal Next.js + TypeScript application using the App Router.
-2. Verify nested layouts.
-3. Verify a dynamic `/properties/[slug]` route.
-4. Verify server rendering and the rendered HTML.
-5. Verify page metadata, canonical URL and Open Graph/Twitter metadata.
-6. Connect the Git repository to Vercel and deploy using Vercel's native Next.js integration.
-7. Verify deployed routes, build behaviour and environment-variable handling, ensuring secrets are not exposed to the browser.
-8. Record Vercel plan eligibility, usage limits and portfolio/demo constraints.
-
-**Explicit non-goals:** Express API implementation; PostgreSQL or Prisma integration; authentication or session implementation; cookie/CORS/CSRF integration; Cloudinary; ZeptoMail; and the full public website, Agent Portal or Administration Portal.
-
-**Acceptance criteria:**
-- A minimal Next.js + TypeScript App Router project installs, runs locally and builds successfully.
-- Nested layouts render at the intended routes.
-- `/properties/[slug]` resolves a dynamic slug and renders the expected smoke-test page.
-- The route uses server rendering and the expected content is present in the returned HTML.
-- Page title/metadata, canonical URL and Open Graph/Twitter metadata are present and correct in rendered output.
-- The Git repository is connected to Vercel and a successful deployment uses Vercel's native Next.js integration; no Cloudflare Workers or vinext adapter/configuration is introduced.
-- The deployed root and dynamic property route load successfully, and the deployment build completes.
-- Environment variables are configured in the appropriate Vercel environment; secrets are not committed, included in client-exposed variables, or present in browser-delivered output.
-- Vercel plan eligibility, current usage limits and relevant portfolio/demo constraints are recorded with the date checked.
-- The task result, deployment URL, verification evidence, limitations and any follow-up issues are documented.
-
-**Verification:** local install/dev/build checks; inspect rendered HTML and metadata; test the root and dynamic route locally and on the deployed URL; inspect the browser-delivered output for secret leakage; review Vercel deployment/build logs and environment-variable configuration; record plan/usage findings.
-
-**Security/review notes:** no secrets in source control or client bundles; no database credentials or API secrets in Next.js public environment variables; user reviews the complete diff and asks for explanations of unfamiliar code before accepting the task.
-
-### Subsequent, separately scoped Phase 2 tasks
-- **Express on Render:** create and deploy a minimal Express + TypeScript service; verify service health, build/start behaviour, environment-variable handling and logs.
-- **Render PostgreSQL and Prisma:** confirm database plan, region, connection limits and backup/restore capabilities; configure Prisma Client and Prisma Migrate; verify connectivity and migration workflow.
-- **Frontend/API transport and browser security:** implement and verify the approved DEC-027 BFF request path: browser requests use same-origin Next.js route handlers, and Next.js calls Express through a server-only HTTPS transport. Confirm the final domain/origins. Browser CORS is not required for the normal BFF path and is not an Express security boundary; handle any separately approved direct browser/API consumer explicitly. Design and validate session-cookie attributes and CSRF enforcement separately before authentication implementation.
-- Measure relevant API/database latency and document cold-start, region and service-availability behaviour as part of the appropriate hosting validation tasks.
-
-These later tasks are not prerequisites or acceptance criteria for PH-SETUP-001. Each must receive its own bounded task ID, scope, dependencies, acceptance criteria and verification plan before implementation.
-
-**PH-SETUP-001 exit gate:** the minimal Next.js application is deployed successfully through Vercel's native integration; the routes, nested layouts, server-rendered HTML and metadata are verified; environment-variable handling is reviewed; Vercel plan/usage constraints are documented; and the user has reviewed and accepted the evidence. Completion of PH-SETUP-001 does not mean the Express API, PostgreSQL/Prisma connectivity or frontend/API security integration has been validated.
-
-## Phase 3 — Detailed design
-
-Deliverables:
-- User flows and route map.
-- Data model and entity relationships.
-- API contract and error format.
-- Authentication/session lifecycle design.
-- Listing state-transition model.
-- Published revision workflow design.
-- Inquiry and notification workflow.
-- Cloudinary upload/deletion lifecycle.
-- Threat model and security controls.
-- Test strategy and seed-data plan.
-
-Exit criteria:
-- Design maps to requirement IDs.
-- Data ownership and role rules are explicit.
-- Migrations and backup approach are defined.
-- No unresolved design issue blocks implementation.
-
-## Phase 4 — Foundation and authentication
-
-Potential task groups:
-- Repository structure and tooling.
-- TypeScript configuration and lint/format/test setup.
-- Environment configuration and secret handling.
-- PostgreSQL connection and migrations.
-- Health checks and structured error handling.
-- User model and password hashing.
-- PostgreSQL-backed sessions.
-- Sign-in, lockout, sign-out, invitation and reset flows.
-- Role and ownership middleware.
-
-Exit criteria:
-- Authentication tests pass.
-- Session idle/absolute expiry and revocation are verified.
-- Unauthorized and cross-agent access tests pass.
-- No secrets appear in client bundle or repository.
-
-## Phase 5 — Listing domain and agent portal
-
-Potential task groups:
-- Listing fields and conditional validation.
-- Listing references and stable slugs.
-- Listing CRUD and status transition service.
-- Cloudinary signed uploads and asset verification.
-- Agent dashboard and listing management.
-- Draft preview and autosave.
-- Published listing revision workflow.
-- Agent profile.
-
-Exit criteria:
-- Required/type-specific validation passes.
-- Image limits and cover rules pass.
-- Only allowed transitions work.
-- Agent ownership isolation passes.
-- Published version remains live until revised version approval.
-
-## Phase 6 — Administration and moderation
-
-Potential task groups:
-- Agent creation and invitations.
-- Agent deactivation/reactivation and session revocation.
-- Automatic unpublishing on deactivation.
-- Moderation queue and review actions.
-- Verification and featured controls.
-- Reassignment and archival.
-- Site settings.
-- Immutable audit log.
-
-Exit criteria:
-- Admin-only actions are protected.
-- At least one active admin invariant is enforced.
-- Moderation and audit tests pass.
-- Deactivation preserves historical records and unpublishes active listings.
-
-## Phase 7 — Public website and search
-
-Potential task groups:
-- Home and public layout.
-- Listings search and filter query.
-- URL-persisted filters/sorting/pagination.
-- Listing detail and gallery.
-- Favourites/local storage resilience.
-- Similar listings.
-- SEO metadata, sitemap, robots and JSON-LD.
-- Concept notice and unavailable pages.
-- WhatsApp and share actions.
-
-Exit criteria:
-- Public users cannot access non-public listings.
-- Search/filter requirements pass.
-- SEO and social metadata are verified from rendered HTML.
-- Mobile and accessibility checks meet targets.
-
-## Phase 8 — Inquiries and email
-
-Potential task groups:
-- Inquiry schema and phone normalization.
-- Consent, honeypot, rate limiting and duplicate-message protection.
-- General contact inquiry.
-- Viewing request workflow.
-- Agent inquiry management and notes.
-- Admin inquiry oversight and CSV export.
-- ZeptoMail notification and visitor confirmation.
-- Delivery status and retry handling.
-- 24-month anonymisation process.
-
-Exit criteria:
-- Inquiry persists during simulated email outage.
-- Viewing request is not treated as confirmed until agent agreement.
-- Agent sees only own inquiries.
-- PII retention/anonymisation tests pass.
-
-## Phase 9 — Quality, security and performance
-
-- Unit, integration, API and E2E tests.
-- Authorization negative tests.
-- Dependency and secret scans.
-- CSRF, rate-limit and upload-security tests.
-- Accessibility review (keyboard and screen reader plus automated checks).
-- Lighthouse performance/SEO/accessibility.
-- 4G/mobile testing.
-- Database backup and restore drill.
-- Error handling and observability review.
-
-Exit criteria:
-- Acceptance criteria have evidence.
-- Critical/high security issues resolved.
-- Performance targets measured and results documented.
-- Restore procedure successfully tested.
-
-## Phase 10 — Deployment and portfolio release
-
-- Configure production environment variables.
-- Deploy frontend and API.
-- Configure the approved BFF domain/origin arrangement, HTTPS, cookies, CSRF controls and security headers; configure CORS only for any separately approved direct browser/API consumer.
-- Configure Cloudinary and ZeptoMail production credentials.
-- Run migrations and seed fictional demo content safely.
-- Verify concept notices and fictional content.
-- Smoke-test all three interfaces.
-- Prepare README, architecture diagram, screenshots and demo walkthrough.
-- Record known limitations and free-tier behaviour.
-
-Exit criteria:
-- Public demo works.
-- Admin and agent access are controlled.
-- No real personal/property data is presented as genuine.
-- Deployment and recovery notes are complete.
-
-## Work management rules
-
-Each task receives an ID, scope, requirement IDs, acceptance criteria, dependencies, test plan and review checklist. Codex receives one bounded task at a time. The developer reviews the diff, runs tests, asks for explanations of unfamiliar code and confirms the result before the next task. Do not let Codex silently change architecture or requirements.
-
----
-
-# 2. Requirements Traceability
-
-**Purpose:** Trace each requirement from the FRS through design, implementation and verification.  
-**Status:** Initial, selective traceability baseline; implementation and test references are not yet assigned. This register is not a claim that every FRS requirement has already been mapped.
-
-## 1. Requirement ID convention
-
-- `FR-PUB-###` — Public website
-- `FR-AGT-###` — Agent Portal
-- `FR-ADM-###` — Administration Portal
-- `FR-LST-###` — Listings and lifecycle
-- `FR-INQ-###` — Inquiries and notifications
-- `FR-AUTH-###` — Authentication and sessions
-- `FR-DATA-###` — Data model and persistence
-- `NFR-SEC-###` — Security and privacy
-- `NFR-PERF-###` — Performance
-- `NFR-A11Y-###` — Accessibility
-- `NFR-OPS-###` — Operations, backup and observability
-- `NFR-SEO-###` — SEO and discoverability
-
-## 2. Initial traceability register
-
-| ID | Requirement summary | Source area | Planned verification |
+| ID | Active requirement / FRS source | Implementation task(s) | Planned verification |
 |---|---|---|---|
-| FR-PUB-001 | Public users can browse only Published and Under Offer listings | FRS 2.3, 3.6, 4.3, 11 | API integration tests for every public listing endpoint |
-| FR-PUB-002 | Search filters, sorting, pagination and URL persistence work | FRS 4.3 | API tests and browser E2E tests including back button/new tab |
-| FR-PUB-003 | Listing detail includes required facts, agent/contact actions and concept notice | FRS 4.5 | Component/integration and E2E tests |
-| FR-PUB-004 | Favourites support up to 100 and tolerate unavailable local storage | FRS 4.7 | Unit and browser tests with storage disabled |
-| FR-LST-001 | Listing fields and type-specific validation are enforced | FRS 3.1–3.2 | Schema unit tests and API validation tests |
-| FR-LST-002 | Listing reference and slug are unique; published slug remains stable | FRS 3.4 | Database constraint and service tests |
-| FR-LST-003 | Images obey format, size, count, cover and signed-upload rules | FRS 3.5, 9.4 | Upload integration tests and negative tests |
-| FR-LST-004 | Only allowed status transitions are possible | FRS 3.6–3.7 | Transition matrix unit/API tests |
-| FR-LST-005 | Publishing requires valid fields, three images and a cover | FRS 3.8 | Validation tests including complete missing-requirement response |
-| FR-LST-006 | Verified and Featured are admin-only | FRS 3.9 | Authorization negative tests |
-| FR-LST-007 | Published edits remain staged until admin approval | Approved v1.1 change | Revision workflow E2E test; assert old public version remains visible |
-| FR-LST-008 | Agent deactivation unpublishes active listings and preserves history | Approved v1.1 change | Admin E2E test and database assertions |
-| FR-INQ-001 | Inquiry fields, phone normalization and consent are validated | FRS 4.8 | Schema/API tests |
-| FR-INQ-002 | Inquiry is persisted even if email fails | FRS 4.8, 11 | Fault-injection integration test |
-| FR-INQ-003 | Viewing request is not scheduled until agent confirms | Approved v1.1 clarification | E2E workflow test |
-| FR-INQ-004 | New inquiry notifications go to agent/admin and visitor if email supplied | Approved planning decision | Email-provider mock/integration tests |
-| FR-AGT-001 | Agents can access only own listings and inquiries | FRS 1.5, 5.4–5.5 | Cross-agent API negative tests |
-| FR-ADM-001 | Admin can manage agents and moderate listings | FRS 6.1–6.2 | Admin API and E2E tests |
-| FR-ADM-002 | Audit log records significant actions and is immutable to users | FRS 6.5 | Audit assertions and authorization tests |
-| FR-AUTH-001 | Five failed sign-ins lock account for 15 minutes | FRS 5.1 | Authentication tests with controlled clock |
-| FR-AUTH-002 | Sessions expire after 12h idle or 7d absolute and revoke immediately | FRS 5.1, approved session decision | Session service tests and deactivation E2E test |
-| NFR-SEC-001 | Protected operations enforce role and ownership on server | FRS 2.3, 8.2, 9.1 | Negative API tests for each protected route group |
-| NFR-SEC-002 | Structured input rejects unexpected fields and `$`/dot keys; SQL access is parameterized | FRS 8.2, 9.2, approved clarification | Validation tests and code/security review |
-| NFR-SEC-003 | Secrets are not exposed to browser or repository | FRS 9.5, 11 | Build inspection, secret scan and deployment config review |
-| NFR-OPS-001 | Independent backup and tested restore procedure exist | Revised FRS 10 | Restore drill with recorded result |
-| NFR-OPS-002 | Logs contain no personal data or secrets | FRS 9.6, 10 | Log inspection and automated redaction tests where feasible |
-| NFR-PERF-001 | Home/listing LCP ≤2.5s on defined mobile/4G target | FRS 10 | Reproducible Lighthouse/performance test |
-| NFR-PERF-002 | 12-item listing response ≤500ms at p95 | FRS 10 | Load/performance test against seeded dataset |
-| NFR-A11Y-001 | WCAG 2.1 AA target and Lighthouse accessibility ≥95 | FRS 10 | Automated accessibility checks plus manual keyboard/screen-reader review |
-| NFR-SEO-001 | SSR metadata, canonical, sitemap, robots and JSON-LD | FRS 4.11 | HTML/source inspection and crawler/SEO validation |
+| FR-PUB-001 | Eligible public listings; unavailable/private distinction; 4.6, 5.3-5.5 | PH-PUBLIC-001, PH-PUBLIC-002 | Search/detail/direct-ID/SSR/sitemap/metadata/cache negative checks |
+| FR-PUB-002 | Filters, all-selected amenities, keyword, sort, 12/page, total, URL/back, Clear Filters; 4.3, 5.3 | PH-PUBLIC-001, PH-PUBLIC-002 | Query-builder/API/browser tests with stable ordering |
+| FR-PUB-003 | Detail/gallery/captions/facts/agent/WhatsApp/share/similar/notice; 5.4, 5.9 | PH-PUBLIC-002 | Component/E2E/keyboard/social preview inspection |
+| FR-PUB-004 | Local favourites <=100, graceful storage failures, remove unavailable; 5.6 | PH-PUBLIC-002 | Disabled storage/cap/unavailable browser checks |
+| FR-PUB-005 | Approximate session views without visitor-marker persistence; 5.4 | PH-PUBLIC-001, PH-PUBLIC-002 | Browser repeat prevention and concurrent atomic increments |
+| FR-LST-001 | Fields/address privacy/type-specific completeness; 4.1-4.3 | PH-LIST-001 | Partial Draft versus submission, conditional/type-change tests |
+| FR-LST-002 | Unique reference/first-publication slug/date stability; 4.4, 4.8 | PH-LIST-001 | Concurrent creation and publication/edit/republication checks |
+| FR-LST-003 | Image content/type/5,000,000 bytes/count/cover/caption/alt/signing/ownership/cleanup; 4.5, 9.4 | PH-LIST-001 | Boundary/corrupt/spoofed upload, cross-owner, orphan and concurrent gallery/cleanup tests |
+| FR-LST-004 | Allowed transitions and stale-write protection; 4.6-4.8 | PH-LIST-001, PH-ADMIN-001 | Transition matrix and competing edit/approve/reassign tests |
+| FR-LST-005 | Submit complete content + 3-15 verified images/cover; 4.9 | PH-LIST-001, PH-AGENT-002 | Missing-requirements response and atomic submission tests |
+| FR-LST-006 | Admin-only Verified and global 0-6 Featured; 4.10 | PH-ADMIN-001, PH-ADMIN-002 | Role, cross-field metadata, seventh-selection race, zero/eligibility tests |
+| FR-LST-007 | Valid Published/Under Offer agent edits enter review/unavailable; no separate revisions; 4.8 | PH-LIST-001, PH-AGENT-002, PH-ADMIN-001 | Form/invalid input unchanged; valid submit atomic; no earlier-content restoration on rejection |
+| FR-LST-008 | Normal reassignment, urgent deactivation, current inquiry ownership; 7.1 | PH-ADMIN-001, PH-AUTH-001, PH-INQ-001 | Revocation, stale access/recipient tests, status/history preservation |
+| FR-LST-009 | Manual partial Draft, private preview, duplicate without images; 6.4 | PH-LIST-001, PH-AGENT-002 | Invalid supplied values, unsaved warning, private cache and clean-duplicate assertions |
+| FR-LST-010 | Never-published/no-dependent-business permanent deletion; 4.11 | PH-LIST-001 | Restrictive inquiry FK, delete/create race, audit preservation and cleanup recovery |
+| FR-INQ-001 | Required contact/email/message/consent, phone normalization, viewing window, anti-spam; 5.7 | PH-INQ-001, PH-INQ-002 | Validation/rate/honeypot/10-minute duplicate concurrency tests |
+| FR-INQ-002 | Persist inquiry independent of email; 5.7-5.8 | PH-INQ-001 | Outage and post-commit interrupted-send tests |
+| FR-INQ-003 | Close any status, reopen Contacted, Viewing Scheduled by agreement, private notes; 6.5 | PH-INQ-001, PH-INQ-002 | Transition/ownership/notes tests; no unread state |
+| FR-INQ-004 | Current agent/admin/visitor recipients, simple status/admin retry; 5.8 | PH-INQ-001, PH-ADMIN-002 | General/property recipients, no former-owner retry, concurrent retries and uncertain outcome |
+| FR-AGT-001 | Current owner only for listings/inquiries/notes/profile; 6.3-6.6 | PH-AGENT-001, PH-AGENT-002 | Cross-agent/stale request negative tests; dashboard/profile checks |
+| FR-ADM-001 | Agent management/moderation/reassignment; 7.1-7.2 | PH-ADMIN-001, PH-ADMIN-002 | Oldest submittedAt queue, validated direct edit, deactivation/admin invariant |
+| FR-ADM-002 | Simple significant audit/user immutability >=12 months; 7.5 | PH-ADMIN-001, PH-ADMIN-002 | Event/reference/PII checks and update/delete denial |
+| FR-ADM-003 | Inquiry oversight and limited settings; 7.3-7.4 | PH-ADMIN-001, PH-ADMIN-002 | Filters, public settings projection, fixed-branding rejection; no CSV/banner |
+| FR-AUTH-001 | Five failures/15-minute lockout; 6.1 | PH-AUTH-001, PH-AUTH-002 | Concurrent failures and controlled-clock lockout |
+| FR-AUTH-002 | Opaque hashed sessions, 12h idle/7d absolute, immediate revocation; 6.1 | PH-AUTH-001, PH-SETUP-004 | Expiry, delayed requests, cookie/CSRF and deactivation tests |
+| FR-AUTH-003 | Bootstrap/invite 48h/reset 30m/password change/self-service; 6.1-6.2, 7.1 | PH-AUTH-001, PH-AUTH-002 | Single-use/resend/token races, enumeration protection, password reset revocation |
+| FR-DATA-001 | Relational entities/FKs/transactions/forward migrations; 3, 8 | PH-DATA-001 | SQL/migration review and integrity checks, preserve applied history |
+| NFR-SEC-001 | Server authorization/current ownership; 8, 9.1 | PH-AUTH-001, PH-SEC-001 | Negative checks for every route, direct Express and BFF |
+| NFR-SEC-002 | Unexpected/$/dot structured keys rejected; safe SQL/plain text; 8, 9.2 | PH-BE-001, PH-SEC-001 | Schemas, parameterization and safe rendering review; allow normal text punctuation |
+| NFR-SEC-003 | Secrets/transport/headers/dependencies; 9.5-9.6 | PH-SEC-001, PH-RELEASE-001 | Client/build/log secret inspection, HTTPS/CSP/HSTS and dependency review |
+| NFR-SEC-004 | BFF cookie/CSRF, rate limits and safe uploads; 9.3-9.4 | PH-DESIGN-004, PH-SETUP-004, PH-SEC-001 | Legitimate/hostile-origin requests, forwarding and abuse tests |
+| NFR-SEC-005 | 24-month contact/text/note/delivery anonymisation, verified deletion; 9.6 | PH-INQ-001 | Cleanup/send/reassignment/restore races and non-identifying audit |
+| NFR-OPS-001 | Independent backups and tested restoration; 10 | PH-SETUP-003, PH-TEST-002 | Dated restore drill, access restrictions, privacy/notification reconciliation |
+| NFR-OPS-002 | Errors/logs without PII/secrets; 10 | PH-BE-001, PH-SEC-001 | Sanitized logs/provider errors; recovery visibility |
+| NFR-OPS-003 | Low-cost hosting, verified limitations/no purchase; 10 | PH-SETUP-001, PH-SETUP-002, PH-SETUP-003, PH-RELEASE-001 | Dated provider evidence and explicit purchase approval if needed |
+| NFR-PERF-001 | LCP <=2.5s, Lighthouse mobile >=90, initial ~1MB; 10 | PH-TEST-002 | Reproducible mobile/4G method, device, data and cold/warm results |
+| NFR-PERF-002 | 12-result response <=500ms p95; 10 | PH-PUBLIC-001, PH-TEST-002 | Documented dataset/load and end-to-end boundary |
+| NFR-A11Y-001 | WCAG 2.1 AA target, Lighthouse accessibility >=95, mobile/browser support; 10 | PH-FE-001, PH-TEST-002 | 360px, keyboard/screen reader, browser and automated checks |
+| NFR-SEO-001 | Public SSR/meta/canonical/OG/Twitter/JSON-LD/sitemap/robots, SEO >=95; 5.10, 10 | PH-PUBLIC-002, PH-TEST-002 | Rendered HTML/crawler/social checks, private exclusion |
+| FR-DATA-002 | Fictional/licensed content, notice, ~24 listings/4 cities/all types/3 agents/1 admin/~30 inquiries; 1, 10 | PH-RELEASE-001, PH-RELEASE-003 | Seed/license/notice inspection and demo review |
 
-## 3. Traceability lifecycle
+## 3. Complete approved-decision coverage
 
-Each requirement progresses through:
-`Not started → Analysed → Designed → In progress → Implemented → Testing → Passed`
+All rows below are product-owner approvals from the consolidated record. Engineering details are proposals within that scope; mapped tests remain planned.
 
-Additional statuses: `Blocked`, `Deferred`, `Rejected` (only with approved change).
+| Decision | Current FRS section | Requirement IDs | Task focus |
+|---|---|---|---|
+| REV-001 | 4.1, 5.4 | FR-LST-001 | Listing fields/public detail |
+| REV-002 | 4.1, 9.1, 13 | FR-LST-001, FR-PUB-001 | Address privacy across all public projections |
+| REV-003 | 4.5 | FR-LST-003, FR-PUB-003 | Visible captions |
+| REV-004 | 4.5, 10 | FR-LST-003, NFR-A11Y-001 | Meaningful alt/caption default |
+| REV-005 | 5.5, 6.4 | FR-LST-009 | Authorized private preview |
+| REV-006 | 4.10 | FR-LST-006 | Global 0-6 selection; no display setting |
+| REV-007 | 5.7-5.8 | FR-INQ-001, FR-INQ-004 | Required inquiry email |
+| REV-008 | 4.8, 7.2 | FR-LST-007 | One listing review workflow/admin direct edit |
+| REV-009 | 4.8, 4.10 | FR-LST-006, FR-LST-007 | Separate Verified/material-change reset |
+| REV-010 | 6.4 | FR-LST-009 | Manual partial Draft/unsaved warning |
+| REV-011 | 4.2 | FR-LST-001 | Conditional fields |
+| REV-012 | 7.1 | FR-LST-008 | Reassign before normal deactivation |
+| REV-013 | 5.5 | FR-PUB-001 | Previously public unavailable vs private 404 |
+| REV-014 | 6.5 | FR-INQ-003 | Statuses/reopening/private notes |
+| REV-015 | 6.5 | FR-INQ-003 | No unread persistence/UI |
+| REV-016 | 5.8 | FR-INQ-002, FR-INQ-004 | Required simple notifications |
+| REV-017 | 5.4 | FR-PUB-005 | Approximate browser/session count |
+| REV-018 | 4.11 | FR-LST-010 | Never-published deletion eligibility |
+| REV-019 | 9.6 | NFR-SEC-005 | Full identifying-data cleanup |
+| REV-020 | 7.3, 12 | FR-ADM-003 | CSV deferred |
+| REV-021 | 6.1-6.2, 7.1 | FR-AUTH-003, FR-ADM-001 | Simplified accounts/last admin |
+| REV-022 | 7.4, 12 | FR-ADM-003 | Limited settings/banner deferred |
+| REV-023 | 6.4 | FR-LST-009 | Duplicate information only |
+| REV-024 | 7.5 | FR-ADM-002 | Simple significant audit |
+| REV-025 | 4.5, 5.3 | FR-LST-003, FR-PUB-002 | Clear Filters/safe media cleanup |
+| REV-026 | 4.5, 5.2-5.3, 5.10, 7.2, 10 | FR-LST-002, FR-LST-003, FR-ADM-001, NFR-PERF-001, NFR-PERF-002, NFR-SEO-001 | Exact bytes/order/SEO; README at release |
+| REV-027 | 4.8 | FR-LST-007 | Unavailable on valid submission only |
+| REV-028 | 4.8, 6.4 | FR-LST-005, FR-LST-007 | Complete existing public edits |
+| REV-029 | 7.1 | FR-LST-008 | Reassignment alone preserves status |
+| REV-030 | 7.1 | FR-LST-008, FR-AUTH-002 | Urgent access revocation/unpublication |
+| REV-031 | 5.8, 6.5, 7.1 | FR-LST-008, FR-INQ-004, FR-AGT-001 | New owner inquiry/recipient responsibility |
+| REV-032 | 4.8, 4.10, 5.6 | FR-LST-002, FR-LST-006, FR-LST-007, FR-PUB-004 | Featured/favourites/original publication date |
+| REV-033 | 4.11, 7.5 | FR-LST-010, FR-ADM-002 | Restrictive business deps, cleanup/audit survival |
+| REV-034 | 6.5 | FR-INQ-003 | Close/reopen/agreed viewing |
+| REV-035 | 10 | NFR-OPS-003 | Verify low-cost providers/no purchases |
+| REV-036 | 5.8 | FR-INQ-004 | Authorized manual retry |
+| REV-037 | 4.8 | FR-LST-007 | Same Under Offer edit review |
+| REV-038 | 4.2 | FR-LST-001 | Validated text Land title description |
 
-A requirement is not Passed merely because code exists. It needs:
-- implementation reference (PR/commit/module);
-- test reference;
-- observed result or evidence;
-- reviewer acceptance.
+## 4. Evidence and task template
 
-Security requirements require negative tests (prove unauthorized behaviour is rejected), not just successful-path tests.
+Each task records ID/objective; relevant FRS sections/requirement IDs/REV approvals; scope/non-goals; dependencies; expected files; approach/risks; acceptance criteria; verification plan; and actual commands/results/reviewer outcome.
 
-## 4. Implementation task template
+Progress: planned -> designed -> in progress -> implemented -> verified -> owner-accepted. Deferred/rejected require scope authority; blocked requires a specific blocker. Neither a traceability row, generated code, a commit nor a planned test counts as verification. Security needs negative tests, not only happy paths. No implementation/test references are invented by this update.
 
-Every task should include:
-1. Task ID and title.
-2. Requirement IDs covered.
-3. Scope and explicit non-goals.
-4. Relevant architecture/decision references.
-5. Preconditions and dependencies.
-6. Acceptance criteria.
-7. Tests to run.
-8. Security and privacy checks.
-9. Expected files/modules changed.
-10. Review notes and evidence.
+## 5. History and change control
 
-## 5. Change control
-
-When a requirement changes:
-- Record approval and rationale in the architecture/decision register.
-- Update `01_REQUIREMENTS_BASELINE_FRS_v1.2.md` and its version/change history as appropriate.
-- Update affected IDs and acceptance tests here.
-- Update risks and roadmap if schedule or architecture changes.
-- Preserve original FRS v1.0 for historical comparison.
-
----
+Git preserves earlier tracked DOC-03 versions; DOC-05 records task/phase reconciliation. Update this coverage, active FRS, DOC-02, risks and canonical tasks together for approved changes. Do not rewrite Git history or create duplicate planning versions/directories. No implementation, migration, deployment, commit or push is authorized here.

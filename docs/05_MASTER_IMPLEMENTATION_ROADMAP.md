@@ -1,478 +1,120 @@
-# Prime Haven Properties — Master Implementation Roadmap
+# Prime Haven Properties - Master Implementation Roadmap
 
-**Status:** Approved sequence, implementation details subject to the existing project baselines  
-**Requirements:** FRS v1.2  
-**Purpose:** Coordinate the complete implementation of Prime Haven Properties.
+**Baseline:** [FRS v1.3](01_REQUIREMENTS_BASELINE_FRS_v1.2.md) and [38 approved REV decisions](PRIME_HAVEN_APPROVED_SCOPE_DECISIONS.md)
 
-## 1. Project objective
+**Updated:** 26 November 2026
 
-Build a professional fictional Nigerian real-estate listings platform with:
+**Authority:** Canonical task IDs, dependencies and status. DOC-03 maps requirements to these tasks; it does not maintain another competing phase sequence.
 
-- Public Website
-- Agent Portal
-- Administration Portal
+## 1. Current execution status and evidence
 
-All property, agent and pricing information must be fictional or properly licensed.
+The scope audit is complete. This documentation synchronization is prepared for owner review. Existing foundations are present; detailed API/workflow/security design remains before domain implementation. This is planning authorization only.
 
-The exact notice `Concept project: listings are fictional` must appear in the footer and on every listing page.
+| Work | Observed evidence | Status / limits |
+|---|---|---|
+| Repository | Git history and working tree inspected | Established; existing untracked documents preserved |
+| PH-SETUP-001 frontend | frontend/src/app, package/config files; initialization commit 250e826 | Scaffold present; local check/acceptance and Vercel deployment evidence not established by this update |
+| PH-SETUP-002 backend | Express app/server/config/health route; commit 2607774 | Foundation present; health is process liveness, not database readiness; Render deployment unverified |
+| PH-SETUP-003 database tooling | Prisma config, adapter client, empty domain schema, empty migration; commit d07ad92 | Tooling present; historical local migration application was reported, not rechecked; current connectivity/restore/provider limits unverified |
+| PH-SETUP-004 transport | DEC-027; commit a453c8f documents approval | BFF topology approved; implementation and deployed cookie/CSRF evidence pending |
+| PH-DESIGN-001 | DOC-06 and DOC-07 synchronized to scope | Documentation prepared for review; no domain schema/migration implemented |
+| PH-DESIGN-002, PH-DESIGN-003, PH-DESIGN-004 | API/workflow/security design deliverables below | Remaining scoped design work; existing relevant material should be reused |
+| Domain features/integration/quality/release | Schema has no domain models; source inventory is scaffolding | Planned; no new verification/acceptance claimed |
 
-## 2. Approved technology stack
+A file or commit proves presence, not passing tests, deployment or owner acceptance. Do not recreate existing foundations or mark them accepted from this table alone.
 
-| Layer | Technology |
+## 2. ID reconciliation and phase ownership
+
+Keep these approved task meanings:
+
+| Canonical ID | Meaning | Retired conversation alias |
+|---|---|---|
+| PH-DESIGN-001 | Domain and physical database design: DOC-06/07 together | Earlier domain-only PH-DESIGN-001 plus physical-design PH-DESIGN-002 |
+| PH-DESIGN-002 | API contracts | Never use for physical database design again |
+| PH-DESIGN-003 | Business workflows | Earlier proposed Prisma-schema PH-DESIGN-003 is retired |
+| PH-DESIGN-004 | Security design | Security contracts and threat/negative-test planning |
+| PH-DATA-001 | Future domain Prisma schema and forward migration implementation | New unambiguous implementation task; not authorized by this update |
+
+Original DOC-03 used ten phases; DOC-05 used eight. The eight phases below are canonical. Earlier Phase 5/6 listing/admin work maps to phase 4 backend and phase 5 portals; earlier Phase 7 public work maps to phases 4/5; earlier Phase 8 inquiries maps to phases 4/5; earlier Phase 9 quality maps to phase 7; earlier Phase 10 release maps to phase 8. Git preserves the earlier tracked roadmaps; maintain this reconciliation in place.
+
+## 3. Canonical phases and tasks
+
+### Phase 1 - Scope and architecture
+
+Approved REV-001 through REV-038, FRS v1.3 and retained stack/BFF. Audit complete; owner review of synchronized documents pending. No new product decisions are manufactured from routine engineering work.
+
+### Phase 2 - Existing foundation completion and deployment validation
+
+| Task | Dependencies | Bounded deliverables and acceptance evidence |
+|---|---|---|
+| PH-SETUP-001 | Existing frontend/repository inspection | Verify local App Router/layouts/dynamic property smoke route, SSR/metadata, build/env handling; when authorized deploy Vercel natively, record URL/date/provider limits and secret-output review. Do not claim complete from scaffold. |
+| PH-SETUP-002 | Existing backend inspection | Verify Express build/start/health/errors/env/logging; when authorized deploy Render and record plan/region/cold starts/HTTPS. Distinguish liveness from readiness. |
+| PH-SETUP-003 | Existing Prisma/migration inspection | Verify connectivity, migration history, connection/pooling limits and safe repeatable commands; independent backup/restore procedure. Preserve applied empty migration. No domain model implementation here. |
+| PH-SETUP-004 | DEC-027, PH-DESIGN-002, PH-DESIGN-004 | Implement bounded Next.js BFF routes/server-only transport and error propagation; verify credential/cookie handling, origins, hostile requests and direct Express authorization. No generic proxy. |
+
+Local design can continue while deployment gates remain pending. Do not require paid/custom-domain deployment to finish domain planning; verify actual provider feasibility before release. No purchases without approval.
+
+### Phase 3 - Detailed design
+
+| Task | Dependencies | Deliverables / acceptance |
+|---|---|---|
+| PH-DESIGN-001 | FRS v1.3 and REV record | Review DOC-06/07 entities, partial Drafts, lifecycle/ownership, simple notifications, privacy, constraints/indexes and planned concurrency evidence; no revisions/unread/visitor markers/counters. Owner accepts documentation separately from implementation. |
+| PH-DESIGN-002 | Reviewed PH-DESIGN-001 | API endpoint/method/schema/error/pagination contracts for all FRS route groups. Include current-owner inquiry access, private preview, duplication without images, manual retry, conditional Draft/submission validation and safe public projections. Map every route to role and acceptance tests. |
+| PH-DESIGN-003 | PH-DESIGN-001, PH-DESIGN-002 | Reuse DOC-06/07 workflows; specify atomic operations, stale requests, reassignment/deactivation, inquiry transitions, safe upload/remove/cleanup, manual notification retry/uncertain results, anonymisation/verified deletion and cache invalidation. No separate revision system. |
+| PH-DESIGN-004 | DEC-027, PH-DESIGN-002, PH-DESIGN-003 | Cookie/CSRF/origin/forwarding contract, session expiry/revocation, reset/invitation atomicity, rate limits/proxy trust, safe uploads, least privilege, PII/backup recovery, threat scenarios and negative tests. |
+
+Next proposed bounded task: PH-DESIGN-002 after review/acceptance of this synchronization. Complete relevant workflow/security gates before domain implementation; do not start these tasks automatically.
+
+### Phase 4 - Backend implementation
+
+All tasks require their reviewed contracts and focused test/evidence plan. These are planned, not started by this documentation change.
+
+| Task | Dependencies | Scope / acceptance focus |
+|---|---|---|
+| PH-BE-001 | Reviewed API/security conventions; setup foundations | Reuse foundation; consistent validation/errors/logging/env/database access; no PII/secrets; readiness distinguishes dependencies. |
+| PH-DATA-001 | Accepted PH-DESIGN-001 through 004; PH-SETUP-003 | Implement reviewed Prisma domain models and forward migration; inspect SQL/FKs/checks/indexes, safe Draft nullability, uniqueness, deletion/retention and privileges; verify relevant constraints/concurrency on actual PostgreSQL. Never rewrite applied migration. |
+| PH-AUTH-001 | PH-BE-001, PH-DATA-001, transport/security contract | Secure bootstrap/invitation, self-service reset/change, sign-in/lockout/logout/current-user, opaque sessions, role/ownership. Prove 12h/7d expiry, immediate revocation, atomic token use and last-active-admin concurrency. |
+| PH-LIST-001 | PH-AUTH-001, PH-DATA-001 | Conditional fields/manual Drafts, reference/slug, complete edited-content review, image captions/alt/upload ownership and cleanup, allowed transitions, duplicate without images and eligible deletion. Prove stale-write, gallery/cover and edit-submit races. |
+| PH-AGENT-001 | PH-LIST-001, PH-AUTH-001 | Own dashboard/listing/profile and current-owner inquiry operations; preview/private resource isolation. |
+| PH-ADMIN-001 | PH-LIST-001, PH-AUTH-001 | Moderation by submittedAt, direct validated edits, Verified, global six-Featured cap, reassignment, normal/emergency deactivation, archive, contact/social/amenity settings and audit. Verify concurrency and no reassignment approval requirement. |
+| PH-PUBLIC-001 | PH-LIST-001, admin visibility rules | Eligible public search/detail/direct-ID/similar/Featured/settings/sitemap projections, filters/all amenities/stable pagination, privacy/cache rules, generic unavailable pages and approximate atomic views. |
+| PH-INQ-001 | PH-AUTH-001, PH-LIST-001, workflow/privacy design | Required contact/consent, normalization/anti-spam/duplicate guard, general/viewing inquiries, transitions/notes, per-recipient persisted email/admin retry, current-owner access, 24-month anonymisation/verified deletion. Persist during outage; prove cleanup/send/reassignment races. |
+
+### Phase 5 - Frontend implementation
+
+| Task | Dependencies | Scope / acceptance focus |
+|---|---|---|
+| PH-FE-001 | Reviewed API/transport; existing Next scaffold | Public/agent/admin layouts/navigation and simple reusable UI; responsive accessible states and correct server/client boundaries. No unnecessary design-system abstraction. |
+| PH-AUTH-002 | PH-AUTH-001, PH-FE-001, PH-SETUP-004 | Sign-in/invitation/self-service reset/change/session navigation; expiry and server access checks. |
+| PH-PUBLIC-002 | PH-PUBLIC-001, PH-FE-001 | All public pages/gallery/captions/alt/lightbox, URL search, local favourites/clear filters, WhatsApp/share, similar listings, SSR/metadata/canonical/JSON-LD/sitemap/robots and concept notice. |
+| PH-AGENT-002 | PH-AGENT-001, PH-AUTH-002, PH-FE-001 | Own dashboard/manual Drafts/conditional forms, unsaved warning, preview, complete public-edit submit, duplicate without images, uploader/profile/status/inquiry UI. |
+| PH-ADMIN-002 | PH-ADMIN-001, PH-INQ-001, PH-AUTH-002 | Review, account/reassignment/emergency actions, Verified/Featured, inquiry oversight/manual retry, limited settings and audit viewer; no CSV/banner/admin reset. |
+| PH-INQ-002 | PH-INQ-001, PH-FE-001 | General/viewing forms, required email/consent, success/failure states, staff statuses/notes, close/reopen/agreement; no unread tracking or booking. |
+
+### Phase 6 - Full-stack integration
+
+Use task ID PH-INT-001. Depends on relevant phase 4/5 tasks. Verify BFF/auth/cookies/CSRF, all portal boundaries, image and inquiry failure handling, ownership transfer, visibility/cache/metadata consistency and complete edit-review flows. Record deployed integration separately from local checks.
+
+### Phase 7 - Quality and security
+
+| Task | Scope / exit evidence |
 |---|---|
-| Frontend | Next.js + TypeScript |
-| Styling | Tailwind CSS |
-| Frontend hosting | Vercel |
-| Backend | Express + TypeScript |
-| Backend hosting | Render |
-| Database | PostgreSQL |
-| ORM | Prisma |
-| Migrations | Prisma Migrate |
-| Image storage | Cloudinary |
-| Transactional email | ZeptoMail |
-| Sessions | PostgreSQL-backed opaque sessions |
+| PH-TEST-001 | Validation/search unit tests, API/ownership/workflow/privacy/concurrency integration tests, frontend components and search-to-inquiry/create-submit-approve E2E; requirement references and actual results. |
+| PH-SEC-001 | Session/CSRF/direct Express access, authorization/stale requests, upload actual-content/ownership, rate limits, secrets/dependencies, audit/PII and recovery checks. CORS only for separately approved direct consumers. |
+| PH-TEST-002 | Mobile 360px/slow network, keyboard/screen reader/WCAG target, reproducible FRS performance/SEO thresholds, error/storage failures and independent backup restore drill. |
 
-Express remains authoritative for authentication, authorization, ownership checks and protected business operations.
+Tasks depend on the relevant implementation, but focused verification belongs with each task rather than waiting until this phase. Exit: FRS acceptance evidence, no unresolved critical/high security issue, owner review.
 
-The browser must never connect directly to PostgreSQL.
+### Phase 8 - Release and portfolio
 
-## 3. Implementation phases
-
-### Phase 1 — Requirements and technical planning
-
-**Status: Complete**
-
-Reference documents:
-
-- Project charter.
-- FRS v1.2.
-- Technical architecture and decisions.
-- Delivery roadmap and traceability.
-- Risk register.
-
-### Phase 2 — Initial environment foundations
-
-**Status: In progress**
-
-**PH-SETUP-001 — Next.js local foundation and Vercel deployment**
-
-- Create Next.js TypeScript application.
-- Configure App Router and Tailwind.
-- Establish initial frontend structure.
-- Verify local development.
-- Verify production build.
-- Establish required layouts and dynamic routes.
-- Verify metadata and rendering.
-- Deploy to Vercel when explicitly authorized.
-
-Current boundary: local setup and verification only. Deployment is pending.
-
-**PH-SETUP-002 — Express local foundation and Render deployment**
-
-- Create Express TypeScript application.
-- Establish server structure.
-- Configure environment variables.
-- Configure logging and error handling.
-- Add health endpoint.
-- Verify local development.
-- Verify production build.
-- Deploy to Render when authorized.
-
-**PH-SETUP-003 — PostgreSQL and Prisma foundation**
-
-- Confirm database plan and region.
-- Configure PostgreSQL.
-- Configure Prisma.
-- Establish initial schema.
-- Configure migrations.
-- Verify database connectivity.
-- Document backups and restoration.
-
-**PH-SETUP-004 — Frontend/backend communication design**
-
-- Approved request path: browser application requests use same-origin Next.js route handlers; Next.js calls Express through a server-only HTTPS transport (DEC-027).
-- Define final frontend/backend origins and API base URL configuration.
-- Define communication and error conventions, including safe upstream status/error propagation.
-- Design the cookie ownership/forwarding contract and CSRF/origin-validation controls before implementing authentication.
-- Verify the BFF request flow over HTTPS. Browser CORS is not required for the normal same-origin path and does not protect Express from direct callers.
-- Decide preview deployment policy and whether any infrastructure/network restrictions on direct Express access are required.
-
-### Phase 3 — Backend domain and API design
-
-**Objective:** establish the data structures, business rules and contracts before implementing major frontend features.
-
-**PH-DESIGN-001 — Domain and database design**
-
-- Users and roles.
-- Agent profiles.
-- Properties and property-specific attributes.
-- Listing revisions.
-- Images and upload metadata.
-- Favourites where server persistence is required.
-- Inquiries and inquiry history.
-- Sessions.
-- Audit records.
-- Site settings.
-
-**PH-DESIGN-002 — API contract design**
-
-- Endpoint groups.
-- HTTP methods and route conventions.
-- Request and response schemas.
-- Validation.
-- Pagination.
-- Filtering and sorting.
-- Error responses.
-- Authorization requirements.
-- API documentation.
-
-**PH-DESIGN-003 — Business workflow design**
-
-- Authentication and session lifecycle.
-- Listing creation and submission.
-- Moderation and approval.
-- Publishing and unpublishing.
-- Agent activation and deactivation.
-- Inquiry handling.
-- Email notification workflow.
-- Image upload lifecycle.
-- Archival and retention.
-
-**PH-DESIGN-004 — Security design**
-
-- Authentication and authorization.
-- Ownership isolation.
-- Session security.
-- CSRF controls.
-- CORS only if required for a separately approved direct browser/API consumer; never as an authorization boundary.
-- Rate limiting.
-- Upload restrictions.
-- Data retention.
-- Audit logging.
-
-Exit criteria: the database model, business workflows and API contracts are sufficiently defined for implementation.
-
-### Phase 4 — Backend implementation
-
-**PH-BE-001 — Backend application foundation**
-
-- Shared utilities.
-- Validation conventions.
-- Error handling.
-- Logging.
-- Database access conventions.
-
-**PH-AUTH-001 — Authentication and sessions**
-
-- Password hashing.
-- Sign-in.
-- Sign-out.
-- Current-user endpoint.
-- Invitation and acceptance.
-- Password reset.
-- Failed-login lockout.
-- Session expiry and revocation.
-- Role and ownership middleware.
-
-**PH-LIST-001 — Listing domain**
-
-- Property creation and retrieval.
-- Property updates.
-- Listing references and slugs.
-- Listing validation.
-- Draft and submission workflows.
-- Status transitions.
-- Published revisions.
-- Archival.
-
-**PH-AGENT-001 — Agent operations**
-
-- Agent profile.
-- Agent listing management.
-- Listing submission.
-- Image management.
-- Agent-specific inquiry access.
-
-**PH-ADMIN-001 — Administration operations**
-
-- Agent management.
-- Moderation.
-- Approval and rejection.
-- Verification.
-- Featured listings.
-- Reassignment.
-- Site settings.
-- Inquiry oversight.
-- CSV export.
-- Audit logs.
-
-**PH-PUBLIC-001 — Public API**
-
-- Public listing retrieval.
-- Search.
-- Filtering.
-- Sorting.
-- Pagination.
-- Property detail retrieval.
-- Featured properties.
-- Similar properties.
-- Public settings.
-- Sitemap data.
-
-**PH-INQ-001 — Inquiry and email operations**
-
-- General inquiries.
-- Viewing requests.
-- Persistence.
-- Notifications.
-- Email delivery.
-- Retry handling.
-- Rate limiting.
-- Duplicate-message protection.
-- Retention and anonymisation.
-
-Exit criteria: required backend workflows and API contracts are implemented and tested.
-
-### Phase 5 — Frontend architecture and implementation
-
-**PH-FE-001 — Frontend application structure**
-
-- Public site layout.
-- Agent Portal layout.
-- Administration Portal layout.
-- Route organization.
-- Shared components.
-- Design system.
-- Navigation.
-- Responsive foundations.
-- Loading, empty and error states.
-
-**PH-PUBLIC-002 — Public Website**
-
-- Homepage.
-- Property search.
-- Filters.
-- Listing cards.
-- Property details.
-- Property gallery and lightbox.
-- Favourites.
-- About.
-- Contact.
-- Privacy Policy.
-- Terms.
-- Error and unavailable pages.
-- Sharing and WhatsApp actions.
-- Similar properties.
-
-**PH-AGENT-002 — Agent Portal**
-
-- Dashboard.
-- Listing overview.
-- Listing creation.
-- Listing editing.
-- Image uploader.
-- Draft preview.
-- Submission.
-- Listing status.
-- Agent profile.
-- Inquiry management.
-
-**PH-ADMIN-002 — Administration Portal**
-
-- Dashboard.
-- Agent management.
-- Agent details.
-- Moderation queue.
-- Listing review.
-- Approval and rejection.
-- Verification.
-- Featured listing controls.
-- Inquiry oversight.
-- Site settings.
-- Audit log viewer.
-
-**PH-AUTH-002 — Authentication interface**
-
-- Sign-in.
-- Invitation acceptance.
-- Password reset.
-- Session-aware navigation.
-- Protected portal access.
-- Expired-session handling.
-
-**PH-INQ-002 — Inquiry interface**
-
-- General inquiry forms.
-- Viewing request forms.
-- Confirmation states.
-- Agent inquiry management.
-- Administration inquiry management.
-
-Exit criteria: all required interfaces are implemented against the agreed backend contracts.
-
-### Phase 6 — Full-stack integration
-
-- Connect frontend to Express.
-- Implement shared API request handling.
-- Verify session behaviour.
-- Verify authorization.
-- Verify property workflows.
-- Verify image uploads.
-- Verify inquiry delivery.
-- Verify email failure handling.
-- Verify all portal boundaries.
-- Verify public data restrictions.
-
-Exit criteria: the frontend and backend work together without violating the approved architecture.
-
-### Phase 7 — Quality assurance and security
-
-**PH-TEST-001 — Automated testing**
-
-- Unit tests.
-- API integration tests.
-- Authentication tests.
-- Authorization tests.
-- Ownership tests.
-- Listing workflow tests.
-- Inquiry tests.
-- Frontend component tests.
-- End-to-end tests.
-
-**PH-SEC-001 — Security verification**
-
-- Session security.
-- CSRF.
-- CORS only for any separately approved direct browser/API consumer; verify that it is not treated as an authorization boundary.
-- Input validation.
-- Authorization.
-- Upload restrictions.
-- Rate limiting.
-- Secret handling.
-- Audit logs.
-- Dependency vulnerabilities.
-
-**PH-TEST-002 — Quality and usability**
-
-- Responsive design.
-- Accessibility.
-- Keyboard navigation.
-- SEO.
-- Performance.
-- Error and empty states.
-- Slow-network behaviour.
-- Backup and restore testing.
-
-Exit criteria: acceptance criteria are verified, critical security issues are resolved and evidence is recorded.
-
-### Phase 8 — Production release
-
-**PH-RELEASE-001 — Production configuration**
-
-- Vercel frontend.
-- Render backend.
-- PostgreSQL production database.
-- Environment variables.
-- HTTPS.
-- Approved domain arrangement.
-- Cloudinary.
-- ZeptoMail.
-- Production migrations.
-- Fictional demonstration data.
-
-**PH-RELEASE-002 — Final verification**
-
-- Public Website.
-- Agent Portal.
-- Administration Portal.
-- Authentication.
-- Listings.
-- Search.
-- Inquiries.
-- Email delivery.
-- Concept notices.
-- SEO and sitemap.
-- Error monitoring.
-- Backup and recovery.
-
-**PH-RELEASE-003 — Portfolio documentation**
-
-- README.
-- Architecture diagram.
-- Database diagram.
-- API documentation.
-- Screenshots.
-- Deployment links.
-- Demonstration guide.
-- Known limitations.
-- Future improvements.
-
-## 4. Task execution rules
-
-Every task must have:
-
-- A unique task ID.
-- A clear objective.
-- Scope and non-goals.
-- Dependencies.
-- Relevant requirements.
-- Expected deliverables.
-- Acceptance criteria.
-- Verification steps.
-
-Codex must work on one explicitly assigned task at a time.
-
-The workflow is:
-
-1. Inspect.
-2. Explain the plan.
-3. Obtain approval where required.
-4. Implement.
-5. Test.
-6. Review the diff.
-7. Report.
-8. Obtain project-owner acceptance.
-9. Commit and push when approved.
-10. Move to the next task.
-
-## 5. Architecture decisions that must remain visible
-
-The browser-to-Express versus Next.js-server-mediated request-path choice is resolved by DEC-027 in favour of Next.js server-mediated communication (BFF). Implementation, final origins and dependent cookie/CSRF settings remain to be designed and validated.
-
-Other dependent decisions include:
-
-- Frontend and backend origins.
-- Cookie configuration.
-- CORS only if required for a separately approved direct browser/API consumer.
-- CSRF.
-- Database plan and region.
-- Connection pooling.
-- Backup strategy.
-- Email retry implementation.
-
-Consult the technical architecture and decision register before implementing affected functionality.
-
-## 6. Current execution status
-
-| Work item | Status |
+| Task | Scope / exit evidence |
 |---|---|
-| Requirements and technical planning | Complete |
-| Local Git repository | Complete |
-| Next.js scaffolding | Complete |
-| Local development server verification | Complete |
-| Core frontend file inspection | In progress |
-| Frontend local foundation acceptance | Pending |
-| Vercel deployment | Pending |
-| Express foundation | Not started |
-| PostgreSQL and Prisma | Not started |
-| Backend domain/API design | Not started |
-| Feature implementation | Not started |
-| Full-stack integration | Not started |
-| Quality assurance | Not started |
-| Production release | Not started |
+| PH-RELEASE-001 | Authorized Vercel/Render configuration/deployment, verified low-cost limits, HTTPS/origins/env, provider credentials, reviewed forward migrations and fictional seed data. No purchase without approval. |
+| PH-RELEASE-002 | Deployed smoke/security/SEO/inquiry/email/recovery verification across all interfaces, concept notices, limitations and owner acceptance. |
+| PH-RELEASE-003 | README, architecture/database diagrams, API reference, screenshots, links/demo guide, known limitations and future ideas clearly outside V1. |
 
-## 7. Completion principle
+## 4. Execution and completion rules
 
-The project is complete only when the approved FRS v1.2 requirements have been implemented or formally deferred, all three interfaces work, security and ownership controls are verified, integrations operate reliably, deployment is stable and the project owner has accepted the evidence.
+For each assigned task state ID, requirements/REV references, objective/scope/non-goals, dependencies, expected files, risks, acceptance criteria and planned checks before editing. Afterward report actual evidence, failures/blockers, diff and proposed Conventional Commit message. The owner accepts work; commits/pushes/deployment require authorization.
 
-This roadmap is a coordination document, not permission for autonomous bulk implementation. Codex must execute one approved task at a time.
+Use distinct states: planned, prepared for review, implemented, verified, owner-accepted, deferred or blocked with evidence. A written mitigation/test plan is not a passed test. Whole-project completion requires implemented or formally deferred FRS requirements, functioning three interfaces, security/recovery/performance evidence and owner acceptance.

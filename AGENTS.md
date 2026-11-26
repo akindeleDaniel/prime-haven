@@ -1,264 +1,64 @@
-# Prime Haven Properties — AI Development Instructions
+# Prime Haven Properties - AI Development Instructions
 
-## 1. Project identity
+## 1. Authority and task boundary
 
-Prime Haven Properties is a fictional Nigerian real-estate listings platform.
+Fictional Nigerian portfolio platform: Public Website, Agent Portal, Administration Portal. The owner controls product scope, major architecture changes, code review and acceptance. Work only on the assigned task and stop for review; never automatically begin the next roadmap task.
 
-The project has three main interfaces:
+Read applicable nested AGENTS.md and relevant references:
 
-1. Public Website
-2. Agent Portal
-3. Administration Portal
+- docs/PRIME_HAVEN_APPROVED_SCOPE_DECISIONS.md: explicit REV-001 through REV-038 approvals.
+- docs/00_PROJECT_CHARTER_AND_SCOPE.md: scope and identity.
+- docs/01_REQUIREMENTS_BASELINE_FRS_v1.2.md: current FRS and acceptance criteria.
+- docs/02_TECHNICAL_ARCHITECTURE_AND_DECISIONS.md: architecture/history/gates.
+- docs/03_DELIVERY_ROADMAP_AND_TRACEABILITY.md: requirement and REV coverage.
+- docs/04_PROJECT_RISK_REGISTER.md: risks.
+- docs/05_MASTER_IMPLEMENTATION_ROADMAP.md: canonical task IDs/dependencies/status.
+- docs/06_BACKEND_DOMAIN_MODEL.md and docs/07_PHYSICAL_DATABASE_DESIGN.md: logical/physical design.
 
-The project owner is responsible for product decisions, architecture approval, code review and task acceptance.
+The existing FRS filename is retained; its internal version and changelog identify the current baseline. Use Git for prior tracked versions; do not create duplicate versions or history directories. Never revive superseded requirements or infer approval from an AI proposal. Report genuine conflicts. Make ordinary technical decisions independently using professional secure engineering; explain important trade-offs. Obtain approval for new features, significant business-rule changes, major architecture changes or alternative frameworks/providers. Avoid overengineering and unnecessary approval gates.
 
-Codex is the primary coding assistant. It must work as an implementation assistant under the direction of the project owner.
+## 2. Model and context guidance
 
-## 2. Mandatory project references
+Before each task, briefly recommend an appropriate available model and reasoning effort, using this owner guidance where available:
 
-Before implementing a task, inspect the relevant project documentation.
+| Task | Model / reasoning |
+|---|---|
+| Standard development / default | GPT-6.1 Sol Medium |
+| Complex implementation or technical planning/review | GPT-6.1 Sol High |
+| Critical engineering, difficult debugging, security | GPT-6 Astra High |
+| Visual or screenshot tasks | GPT-6.1 Terra Medium |
+| Simple edits/documentation | GPT-6 Luna Low or Medium |
 
-The following documents are the authoritative project references:
+Do not claim automatic switching or unverified availability. If unavailable, recommend the closest available model. Keep recommendations short for trivial tasks. Before substantial work recommend continuing or starting a new conversation according to scope/context; do not require a reset unnecessarily. Preserve accepted decisions, task boundary, progress, blockers and evidence during handoffs. Treat new messages as steering unless the owner replaces the task; do not repeat completed audits.
 
-- `docs/00_PROJECT_CHARTER_AND_SCOPE.md`
-- `docs/01_REQUIREMENTS_BASELINE_FRS_v1.2.md`
-- `docs/02_TECHNICAL_ARCHITECTURE_AND_DECISIONS.md`
-- `docs/03_DELIVERY_ROADMAP_AND_TRACEABILITY.md`
-- `docs/04_PROJECT_RISK_REGISTER.md`
-- `docs/05_MASTER_IMPLEMENTATION_ROADMAP.md`
+## 3. Approach, code quality and learning
 
-If the documents are stored somewhere other than `docs/`, locate their actual paths before proceeding.
+Before implementation inspect the task, relevant requirements, code, dependencies and existing work. Explain understanding, proposed approach, expected files, risks/assumptions and verification plan before editing.
 
-### Document authority
+Use understandable typed code, meaningful names, appropriate modules and consistent organization. Avoid unnecessary dependencies/abstractions, duplicated logic, unjustified any types, hardcoded secrets, silent failures, unrelated refactors and unexplained configuration changes. Preserve useful instructions and existing work.
 
-- The project charter defines the approved project scope.
-- FRS v1.2 is the current functional and non-functional requirements baseline.
-- The architecture document defines approved technical decisions and records unresolved decisions.
-- The delivery roadmap defines the original delivery plan and traceability.
-- The risk register identifies known risks and mitigations.
-- The master implementation roadmap organizes the implementation sequence.
+Explain unfamiliar concepts, important changes and trade-offs in plain English with project examples. Help the developer understand and maintain the code; generated code is not proof of correctness. Record significant technical choices in the appropriate project document without inventing requirements.
 
-Do not silently change, reinterpret or override approved requirements.
+## 4. Architecture, frontend, backend and security
 
-If documents conflict or an important detail is missing, stop and report the conflict to the project owner.
+- Approved stack: Next.js App Router/TypeScript/Tailwind on Vercel; Express/TypeScript on Render; Render PostgreSQL; Prisma/Migrate; Cloudinary; ZeptoMail; PostgreSQL opaque sessions. Cloudflare/vinext are cancelled.
+- DEC-027: browser -> same-origin Next.js route handlers -> server-only HTTPS Express. No unrestricted generic proxy. Express independently owns authentication, role/current ownership and business rules, including direct API calls. BFF/CORS are not authorization boundaries.
+- Never expose database access, credentials or private keys to frontend code. Validate untrusted input and reject unexpected fields server-side. Use parameterized queries/safe ORM; distrust browser role, ownership and asset claims.
+- Follow reviewed cookie/forwarding/CSRF design before authentication. Retain secure password hashing, expiry/revocation, rate limits and content/metadata/ownership checks for uploads. Never weaken protections for convenience or log credentials/tokens/unnecessary PII.
+- Keep routes/controllers/services/validation/persistence responsibilities clear, business rules out of route definitions, errors consistent and untrusted content plain text. Recheck current ownership on sensitive operations and reassignment races.
+- Frontend: accessible semantic HTML, responsive layouts, reusable components where useful, appropriate server/client separation, loading/empty/error/unavailable states, image optimization and public metadata/SEO. Use reviewed API contracts rather than assumed response shapes.
+- Database: preserve integrity, appropriate constraints/indexes, transactions and applied migration history. Review migration effects and back up before risk; no destructive operations without approval, no casual production edits or committed credentials. Use least-privileged application access.
+- Fictional/licensed content only. Exact notice "Concept project: listings are fictional" appears in footer and every listing page.
+- Prefer free/low-cost hosting, verify provider limits before deployment and never purchase without approval.
 
-## 3. Implementation scope
+## 5. Verification, documentation and reporting
 
-Work only on the task explicitly assigned by the project owner.
+Verify assigned acceptance criteria and inspect the diff; run task-relevant checks when requested/authorized. Choose unit/integration/security tests, lint, type checks/build according to scope. Documentation work needs consistency/reference checks, not unrelated application execution. Never claim planned tests passed, code is proven or work is owner-accepted without evidence.
 
-Do not independently implement future roadmap phases.
+Report changes/files, significant decisions, commands/checks and actual results, security effects, existing versus new failures, unverified assumptions/blockers and the smallest next action. Explain unavailable checks. Distinguish planned, implemented, verified and owner-accepted work; final acceptance belongs to the owner. Update affected requirements/decisions/risks/traceability/status when authorized changes require it.
 
-Do not expand the scope because an additional feature appears useful.
+## 6. Git discipline
 
-Before implementation:
+Suggest focused Conventional Commit messages when relevant, for example feat(auth): implement session revocation or docs: synchronize approved scope. Preserve unrelated work and historical records.
 
-1. Read the assigned task.
-2. Inspect relevant requirements.
-3. Inspect the existing codebase.
-4. Identify dependencies and assumptions.
-5. Present an implementation plan.
-6. Identify expected files and tests.
-
-If the task requires an unresolved architectural decision, report it instead of guessing.
-
-## 4. Technology constraints
-
-Follow the approved technology stack:
-
-- Next.js and TypeScript for the frontend.
-- Tailwind CSS for styling.
-- Express and TypeScript for the backend.
-- PostgreSQL for persistence.
-- Prisma ORM and Prisma Migrate.
-- Vercel for frontend hosting.
-- Render for backend and database hosting.
-- Cloudinary for image storage.
-- ZeptoMail for transactional email.
-- PostgreSQL-backed opaque sessions.
-
-Do not introduce alternative frameworks, hosting providers, ORMs or architectural patterns without approval.
-
-Cloudflare Workers and vinext are cancelled historical proposals. Do not revive them.
-
-## 5. Architecture and security rules
-
-- Express is authoritative for authentication, authorization, role checks, ownership checks and protected business operations.
-- The browser must never connect directly to PostgreSQL.
-- Never expose database credentials, private API keys or server secrets to frontend code.
-- Validate untrusted input on the server.
-- Enforce authorization on the backend, not only in the frontend.
-- Enforce ownership checks for agent-owned resources.
-- Use secure password hashing and approved session management.
-- Follow the approved cookie, CORS and CSRF design once finalized.
-- Never weaken security controls to make a feature work more easily.
-- Do not log passwords, tokens, secrets or unnecessary personal information.
-
-The browser-to-Express versus Next.js-server-mediated API request path is unresolved. Do not make assumptions about this decision when implementing authentication, cookies, CORS or CSRF.
-
-## 6. Code quality
-
-Write code that is:
-
-- Understandable.
-- Maintainable.
-- Modular where appropriate.
-- Consistent with the existing architecture.
-- Properly typed.
-- Easy to test.
-- Secure by default.
-
-Prefer simple solutions over unnecessary abstraction.
-
-Use meaningful names and consistent file organization.
-
-Avoid:
-
-- Unnecessary dependencies.
-- Duplicated business logic.
-- Excessive component complexity.
-- Unnecessary `any` types.
-- Hardcoded secrets.
-- Silent error handling.
-- Large unrelated refactors.
-- Unexplained configuration changes.
-
-Do not modify unrelated files.
-
-## 7. Frontend rules
-
-- Use the Next.js App Router.
-- Use TypeScript.
-- Use Tailwind CSS as the primary styling approach.
-- Keep components reusable where doing so improves maintainability.
-- Keep server and client components appropriately separated.
-- Use accessible semantic HTML.
-- Provide responsive layouts.
-- Handle loading, empty, error and unavailable states.
-- Use Next.js image capabilities appropriately.
-- Keep metadata and SEO requirements in view.
-
-Do not assume backend response structures. Use approved API contracts.
-
-## 8. Backend rules
-
-- Use Express and TypeScript.
-- Keep routes, controllers, services, validation and persistence responsibilities organized.
-- Validate incoming requests.
-- Use consistent response and error conventions.
-- Enforce authentication, authorization and ownership.
-- Keep business rules in appropriate backend layers.
-- Avoid placing business logic directly inside route definitions.
-- Never trust frontend-supplied role or ownership information.
-
-## 9. Database rules
-
-- Use PostgreSQL and Prisma.
-- Use Prisma Migrate for schema changes.
-- Preserve relational integrity.
-- Define appropriate constraints and indexes.
-- Avoid destructive schema changes without explicit approval.
-- Never modify production data casually.
-- Never commit database credentials.
-- Explain migrations and their impact before applying risky changes.
-
-## 10. Fictional content and licensing
-
-All property, agent, pricing and image content must be fictional or properly licensed.
-
-The exact notice:
-
-"Concept project: listings are fictional"
-
-must appear in the footer and on every listing page.
-
-Never present fictional listings as genuine properties available for sale or rent.
-
-## 11. Testing and verification
-
-Every task must include appropriate verification.
-
-Depending on the task, run:
-
-- Relevant unit tests.
-- Relevant integration tests.
-- ESLint.
-- TypeScript checks.
-- Production build.
-- Security-related tests.
-
-Do not claim tests passed unless they were actually executed successfully.
-
-If a test cannot be run, explain why.
-
-Report existing failures separately from failures introduced by the task.
-
-## 12. Required task workflow
-
-### Before implementation
-
-Provide:
-
-- Understanding of the task.
-- Relevant requirements.
-- Proposed approach.
-- Expected files to change.
-- Dependencies.
-- Risks.
-- Verification plan.
-
-### During implementation
-
-- Work only within the approved scope.
-- Keep changes focused.
-- Avoid unnecessary refactoring.
-- Explain significant implementation decisions.
-
-### After implementation
-
-Provide:
-
-1. Summary of changes.
-2. Files created, modified or deleted.
-3. Important implementation decisions.
-4. Commands executed.
-5. Test, lint and build results.
-6. Security considerations.
-7. Outstanding issues.
-8. Recommended next action.
-
-Do not automatically begin the next roadmap task.
-
-Wait for the project owner's review and approval.
-
-## 13. Git discipline
-
-Use small, meaningful commits.
-
-Follow Conventional Commits where appropriate.
-
-Examples:
-
-- `chore(frontend): scaffold next.js application`
-- `feat(auth): implement agent sign-in`
-- `feat(listings): add listing submission workflow`
-- `fix(inquiries): handle email delivery failures`
-- `test(auth): verify session revocation`
-- `docs: update deployment instructions`
-
-Do not commit unrelated changes.
-
-Do not push, merge, reset, rebase or delete branches without the project owner's instruction.
-
-Never overwrite existing work without inspecting it first.
-
-## 14. Human approval requirement
-
-The project owner must understand and review significant implementation changes.
-
-Do not treat AI-generated code as automatically correct.
-
-Do not mark a task complete simply because code has been generated.
-
-A task is complete only after its acceptance criteria have been verified and the project owner has accepted the result.
-
-**Final rule: Read the project, understand the assigned task, implement only the approved scope, verify your work and report honestly.**
+**Never commit or push without explicit authorization.** Do not merge, reset, rebase or delete branches without instruction. Deployment, purchases and risky migrations need appropriate authorization. Stop at the assigned task boundary.

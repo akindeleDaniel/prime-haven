@@ -1,9 +1,12 @@
 # Prime Haven Properties — Technical Architecture and Decision Register
 
-**Document type:** Architecture baseline and architecture decision record  
-**Status:** Approved planning baseline; listed validations and open decisions remain unresolved  
-**Project:** Fictional Nigerian real-estate listings platform  
-**Requirements baseline:** FRS v1.2
+**Document type:** Architecture baseline and architecture decision record
+
+**Status:** Approved architecture retained; scope synchronized 26 November 2026; technical validations are planned, not verified
+
+**Project:** Fictional Nigerian real-estate listings platform
+
+**Requirements baseline:** [FRS v1.3](01_REQUIREMENTS_BASELINE_FRS_v1.2.md); [REV-001 through REV-038](PRIME_HAVEN_APPROVED_SCOPE_DECISIONS.md)
 
 The original FRS v1.0 PDF is historical and unchanged. The architecture below records the approved direction; it does not imply that deployment, provider plans or detailed security configuration have already been validated.
 
@@ -11,7 +14,8 @@ The original FRS v1.0 PDF is historical and unchanged. The architecture below re
 
 # 1. System Architecture
 
-**Status:** Approved planning baseline with implementation-time validations  
+**Status:** Approved planning baseline with implementation-time validations
+
 **Architecture style:** Separate SSR frontend and API backend
 
 ## Architecture overview
@@ -48,7 +52,7 @@ The browser loads Next.js and sends application requests through same-origin Nex
 - PostgreSQL access.
 
 ### PostgreSQL on Render
-- Users, properties, revisions, images metadata, inquiries, notes, sessions, audit log and settings.
+- Users, properties, image/upload metadata, inquiries, notes, simple notification status, sessions, audit log, settings and aggregate views. No separate listing revisions, unread state or server visitor markers.
 - Relational constraints, transactions, indexes and migrations.
 - No property image binaries; images live in Cloudinary.
 
@@ -156,7 +160,7 @@ Measure frontend-to-API latency from the deployed Vercel application. Account fo
 
 ## 9. Inquiry and email reliability
 
-Persist the inquiry before attempting email delivery. Track notification delivery status and failures. Provide controlled retry capability. The initial implementation may use persisted delivery status and a retry action; a transactional outbox may be adopted if complexity and reliability needs justify it.
+Persist the inquiry before attempting email delivery. Track notification delivery status and failures. Provide controlled retry capability. Use simple persisted per-recipient status and authorized administrator manual retry (REV-016, REV-036). No elaborate job platform, separate immutable attempt history or automatic retry scheduler. Protect concurrent sends, recover interrupted sends, acknowledge uncertain outcomes and possible duplicates, resolve current property ownership at send/retry, and coordinate cancellation with privacy cleanup. Provider idempotency is used only if verified as supported.
 
 Do not let an email provider outage roll back a successfully persisted inquiry.
 
@@ -189,32 +193,24 @@ The exact Render PostgreSQL plan features, limits, backup options and restore pr
 - `$`/dot object-key rejection is additional structured-input validation only; SQL injection protection is parameterized queries and safe database access.
 - Dependency versions pinned and checked for vulnerabilities.
 
-## 12. Open technical decisions
+## 12. Remaining technical design and validation gates
 
-The request-path choice is resolved by DEC-027: browser requests use same-origin Next.js route handlers and Next.js calls Express through a server-only HTTPS transport. This approval does not finalize deployment origins or detailed authentication/security settings. Do not implement those settings until their remaining decisions and contracts are explicitly reviewed.
+DEC-027 resolves the request path; all 38 product decisions are approved. These are scoped engineering/design checks, not requests to reopen product decisions:
 
+- PH-DESIGN-002: typed API requests/responses, error/pagination conventions, private preview and safe public projections.
+- PH-DESIGN-003: transaction boundaries, current-owner checks, edited-content submission, deactivation, simple manual notification retry, privacy cleanup and image recovery.
+- PH-DESIGN-004: documented cookie creation/forwarding/clearing contract, CSRF/token/origin enforcement, session security-event revocation, rate-limit/proxy trust and direct Express access checks. Revoke existing sessions after password reset/change; current account status and role remain authoritative. Rotation cadence is an engineering choice and never extends absolute expiry.
+- PH-SETUP-001, PH-SETUP-002, PH-SETUP-003, PH-SETUP-004 and release: verify existing local foundations rather than recreating them; deployed origins, preview policy, host plan/region/eligibility/limits, connection pooling, cookie transport, backup destination/retention and restore drill. No purchases or alternative providers without approval.
+- Deployment acceptance: dated evidence of free/low-cost feasibility, cold/warm latency and provider recovery capabilities; the planned Vercel smoke check above is not completion evidence.
 
-- Initial Vercel deployment validation result and selected plan/usage constraints.
-- Final custom domain and deployed origins.
-- Cookie Domain, Path, Secure and SameSite attributes; cookie ownership and forwarding behaviour between Next.js and Express.
-- Session refresh and rotation behaviour across the BFF.
-- CSRF mechanism, token strategy and origin validation.
-- Preview deployment and environment policy.
-- Any infrastructure/network restrictions on direct access to Express.
-- Whether any separately approved direct browser/API consumer needs CORS configuration.
-- Express Render service plan and region.
-- Render PostgreSQL region, plan, connection URL/limits and backup capabilities.
-- Prisma connection/pooling configuration for the selected deployment.
-- Backup destination and retention implementation.
-- Email retry implementation.
-- Logging/monitoring service.
-- Exact session rotation policy.
+Engineers choose routine safe details within approved architecture and report them for task review. Escalate new product behaviour, major architecture departures, cost or a material conflict; do not require separate owner decisions for index order, lock implementation, cleanup batch size or notification request timeouts.
 
 ---
 
 # 2. Architecture Decision Register
 
-**Status:** Current planning decision register  
+**Status:** Current planning decision register
+
 **Rule:** A proposal is not an approval. Material deviations from the FRS must be recorded here.
 
 | ID | Topic | Decision / current position | Status | Rationale / notes |
@@ -233,18 +229,18 @@ The request-path choice is resolved by DEC-027: browser requests use same-origin
 | DEC-013 | Email | ZeptoMail | Retained from FRS | Transactional email. |
 | DEC-011 | ORM and migrations | Prisma ORM + Prisma Migrate | Approved | Prisma Client for application database access; Prisma Migrate for schema migrations. Review generated migrations before applying. |
 | DEC-014 | Session architecture | PostgreSQL-backed server-managed sessions | Approved | Immediate revocation and clear idle/absolute expiry enforcement. |
-| DEC-015 | Published listing edits | Stage edits as draft revision; keep current public version until approval | Approved change from FRS v1.0 | Prevent unreviewed changes from replacing public content. |
+| DEC-015 | Public listing edits | Complete valid agent edits to Published/Under Offer enter Pending Review atomically; listing unavailable until approval; no separate revisions | Updated by REV-008, REV-027, REV-028, REV-032, REV-037 | Opening form/invalid submission leaves public data unchanged; clear Featured, preserve original publication date/slug. Admin direct edits validated/audited. |
 | DEC-016 | Viewing requests | Request is not a confirmed appointment; agent confirms with visitor | Approved clarification | Avoid implying automated booking. |
-| DEC-017 | Inquiry email notifications | New inquiry emails owning agent and admin; visitor confirmation if email supplied; no routine status-change emails initially | Approved | Reliable, bounded notification scope. |
+| DEC-017 | Inquiry notifications | Required visitor email; property inquiry current agent/admin/visitor, general inquiry admin/visitor; no status-change email | Updated by REV-007, REV-016, REV-031, REV-036 | Simple persisted status/manual admin retry; current-owner recipient; persist before send. |
 | DEC-018 | Inquiry persistence | Persist inquiry before email attempt; log failures and support retry | Approved | Email outage must not lose inquiries. |
-| DEC-019 | Agent deactivation | Revoke sessions and automatically unpublish Published/Under Offer listings; preserve records | Approved change from FRS v1.0 | Prevent inactive agent listings remaining live. |
-| DEC-020 | Inquiry retention | Anonymise personal data after 24 months; handle verified deletion requests separately | Approved clarification | Preserve non-identifying records where appropriate. |
+| DEC-019 | Deactivation/reassignment | Reassign before normal deactivation; urgent security deactivation immediately revokes sessions/unpublishes unmanaged listings | Updated by REV-012, REV-029, REV-030, REV-031 | Reassignment itself preserves status and needs no approval; preserve business history and transfer inquiry responsibility. |
+| DEC-020 | Inquiry retention | Automatic 24-month anonymisation includes identifying contact/text/note/delivery data; controlled verified deletion separate | Clarified by REV-019 | Cancel pending notifications; retain permitted non-identifying history and restore cleanup state. |
 | DEC-021 | Moderation v1 | Manual admin approval for every new listing | Approved | Appropriate for demo and demonstrates moderation/RBAC/audit. |
 | DEC-022 | Production moderation preference | Automated validation plus risk-based human review | Future preference, not v1 scope | Better scaling for a normal production system. |
 | DEC-023 | Admin review standard | Check completeness, policy, image suitability and suspicious/inconsistent information; not professional valuation | Approved clarification | Distinguishes platform moderation from valuation. |
-| DEC-024 | Listing form | Structured form with required fields mandatory, optional fields available and conditional fields by property type | Approved direction | Improve data quality; backend validation remains authoritative. |
+| DEC-024 | Forms/drafts | Manual incomplete new Drafts; complete submission with type-specific validation and required exact address; no autosave | Updated by REV-002, REV-010, REV-011, REV-028, REV-038 | Land title-document type is validated text; public-edit content cannot be saved as incomplete replacement. |
 | DEC-025 | Backup policy | Independent weekly exports for demo and before major migrations; production should have stronger automated backup/PITR | Approved direction | Provider restore window alone is insufficient. |
-| DEC-026 | Original FRS and consolidated baseline | Preserve the original v1.0 PDF unchanged; maintain the consolidated current requirements baseline as FRS v1.2, retaining the v1.1 planning clarifications and v1.2 hosting change history | Approved | Maintains historical source integrity and traceability. |
+| DEC-026 | Baseline/history | Current FRS v1.3 inside the existing FRS file; preserve original PDF and Git history | Updated by all 38 REV decisions | Record supersession and version changes in existing documents; use Git for prior tracked versions. Prior text is not new approval evidence. |
 | DEC-027 | Frontend/backend communication | Next.js server-mediated communication (BFF) | Approved | Browser requests use same-origin Next.js route handlers; Next.js uses a server-only HTTPS transport to Express. See conditions below; this does not approve detailed cookie, CSRF, domain or network settings. |
 
 ### DEC-027 — Approved conditions and implications
@@ -266,7 +262,7 @@ Approved by the project owner on 2026-11-21 to resolve OPEN-009.
 
 ## Hosting decision change history
 
-**DEC-006 update (2026-11-19):** Cloudflare Workers was replaced by Vercel at the user's direction. The vinext proposal and its compatibility spike were cancelled before implementation. The original proposal is retained here only as decision history; it is not an active requirement or task. The consolidated current requirements baseline is FRS v1.2, based on the original v1.0 source plus the approved v1.1 planning clarifications and v1.2 hosting change recorded in `01_REQUIREMENTS_BASELINE_FRS_v1.2.md`.
+**DEC-006 update (2026-11-19):** Cloudflare Workers was replaced by Vercel at the user's direction. The vinext proposal and its compatibility spike were cancelled before implementation. The original proposal is retained here only as decision history; it is not an active requirement or task. At the time of that hosting change, the consolidated baseline was FRS v1.2, based on the original v1.0 source plus the approved v1.1 planning clarifications and v1.2 hosting change recorded in `01_REQUIREMENTS_BASELINE_FRS_v1.2.md`.
 
 ## Open decisions / validation gates
 
@@ -278,12 +274,28 @@ Approved by the project owner on 2026-11-21 to resolve OPEN-009.
 | OPEN-004 | Render PostgreSQL | Confirm database plan, region, connection URL/limits, backup capabilities and restore process | Before database integration |
 | OPEN-005 | Prisma connectivity | Confirm Prisma Client connection/pooling configuration for the selected Render PostgreSQL deployment | Database integration |
 | OPEN-006 | Backups | Select independent storage destination and implement restore drill | Before production acceptance |
-| OPEN-007 | Email retries | Choose persisted delivery-status/retry design or transactional outbox | Backend design |
-| OPEN-008 | Session lifecycle | Define rotation/revocation triggers beyond logout/deactivation | Authentication design |
+| OPEN-007 | Email retries | Scope resolved by REV-016, REV-036: simple persisted notification status/manual admin retry. Safe sending/recovery details remain engineering work. | PH-DESIGN-003 / PH-INQ-001 |
+| OPEN-008 | Session lifecycle | Document BFF cookie lifecycle; revoke after password reset/change and deactivation; validate current role/status; choose safe rotation details without extending absolute expiry | PH-DESIGN-004 before authentication |
 | OPEN-009 | API request path | Resolved by DEC-027: browser requests use same-origin Next.js route handlers; Next.js communicates with Express through server-only HTTPS transport. Final origins and implementation details remain open under OPEN-002/OPEN-008 and the listed DEC-027 follow-ups. | Approved 2026-11-21; implement after dependent design review |
 
 ## Decision-change procedure
 
-A decision changes only when the user approves the change. Record: decision ID, old decision, new decision, reason, alternatives considered, FRS impact, architecture impact, migration impact and date. Update affected requirements and traceability entries. Do not silently overwrite history.
+A product or major architecture decision changes only with explicit owner approval. Routine engineering choices within the approved scope do not require separate product approval. Record: decision ID, old decision, new decision, reason, alternatives considered, FRS impact, architecture impact, migration impact and date. Update affected requirements and traceability entries. Do not silently overwrite history.
 
 ---
+
+## Scope supersession history - 26 November 2026
+
+The owner-approved [consolidated record](PRIME_HAVEN_APPROVED_SCOPE_DECISIONS.md) updates requirements without changing providers, frameworks, session architecture or DEC-027. Prior tracked register versions are available through Git; the table below records supersession in this existing document.
+
+| Prior position | Current position / approval |
+|---|---|
+| DEC-015 separate revisions kept public content live | One stored listing enters review on valid agent submission, including Under Offer; REV-008, REV-027, REV-028, REV-037 |
+| DEC-017 optional visitor confirmation | Email required; current-owner delivery; REV-007, REV-016, REV-031 |
+| DEC-019 all deactivation automatically unpublishes | Normal reassignment first; urgent exception; REV-012, REV-029, REV-030 |
+| Retention text left message/notes/delivery unresolved | Identifying content included; REV-019 |
+| OPEN-007 outbox/worker choice | Simple persisted manual retry; REV-036 |
+| Strict visitor markers, image counters/privileged triggers, revision/attempt history | Remove/simplify using atomic counts and parent-locked validation; accepted technical corrections |
+| Featured display-count setting, unread, autosave, admin reset, CSV/banner | Fixed selection cap; manual Draft; self-service reset; deferred CSV/banner; REV-006, REV-010, REV-015, REV-020, REV-021, REV-022 |
+
+DOC-03 maps every REV to active FRS and tasks. PH-DESIGN-001 covers both DOC-06 and DOC-07; PH-DESIGN-002 is API contracts, PH-DESIGN-003 workflows and PH-DESIGN-004 security. Do not reuse earlier conversation aliases for these tasks. No scope decision remains awaiting product approval; technical validation is not claimed complete.
