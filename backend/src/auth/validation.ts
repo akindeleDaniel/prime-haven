@@ -10,6 +10,14 @@ export const bootstrapSchema = z.strictObject({
   name: z.string().trim().min(1).max(120), email,
   phone: z.string().regex(/^\+[1-9]\d{7,14}$/), password: newPassword,
 });
+export const agentCreateSchema = z.strictObject({
+  name: z.string().trim().min(1).max(120).refine(value => !/[\u0000-\u001f\u007f]/.test(value), "Name contains unsupported control characters."), email,
+  phone: z.string().regex(/^\+[1-9]\d{7,14}$/),
+});
+export const invitationAcceptanceSchema = z.strictObject({
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/), password: newPassword,
+});
+export const agentIdSchema = z.string().uuid();
 
 export function rejectUnsafeKeys(value: unknown): void {
   if (!value || typeof value !== "object") return;

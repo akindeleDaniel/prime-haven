@@ -2,7 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
-type Operation = "sign-in" | "sign-out" | "me";
+type Operation = "sign-in" | "sign-out" | "me" | "create-agent" | "resend-invitation" | "accept-invitation";
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const NO_STORE = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Vary": "Cookie" };
 
@@ -53,10 +53,11 @@ function safeMe(value: unknown) {
     role: obj.role, photoUrl: obj.photoUrl, biography: obj.biography };
 }
 
-export async function handleAuth(request: NextRequest, operation: Operation): Promise<NextResponse> {
+export async function handleAuth(request: NextRequest, operation: Operation, agentId?: string): Promise<NextResponse> {
   let config: ReturnType<typeof configuration>;
   try { config = configuration(); } catch { return failure(503, "SERVICE_UNAVAILABLE", "Authentication is not configured."); }
   const mutate = operation !== "me";
+  const adminOperation = operation === "create-agent" || operation === "resend-invitation";
   const origin = request.headers.get("origin");
   const fetchSite = request.headers.get("sec-fetch-site");
   if ((origin && origin !== config.origin) || (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") ||
@@ -78,13 +79,20 @@ export async function handleAuth(request: NextRequest, operation: Operation): Pr
 
   const headers = new Headers({ "X-BFF-Key": config.key });
   // No inbound Authorization, Cookie, forwarding headers or caller-selected URL is relayed.
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (token && operation !== "accept-invitation") headers.set("Authorization", `Bearer ${token}`);
   if (mutate) {
     headers.set("Origin", config.origin);
     headers.set("X-Prime-Haven-CSRF", "1");
     headers.set("Content-Type", "application/json");
   }
-  const path = operation === "me" ? "/me" : `/auth/${operation}`;
+  const routePath = operation === "me" ? "/me"
+    : operation === "create-agent" ? "/admin/agents"
+      : operation === "resend-invitation" ? `/admin/agents/${agentId ?? ""}/invitations`
+        : operation === "accept-invitation" ? "/auth/invitation-acceptances" : `/auth/${operation}`;
+  if (operation === "resend-invitation") {
+    if (!agentId || !/^[0-9a-f-]{36}$/i.test(agentId)) return failure(400, "INVALID_REQUEST", "Invalid agent identifier.");
+  }
+  const path = routePath;
   let upstream: Response;
   try {
     upstream = await fetch(`${config.api}/api/v1${path}`, { method: mutate ? "POST" : "GET", headers, body,
@@ -100,8 +108,24 @@ export async function handleAuth(request: NextRequest, operation: Operation): Pr
     response = NextResponse.json({ error: json.error }, { status: upstream.status, headers: NO_STORE });
     const retry = upstream.headers.get("Retry-After");
     if (upstream.status === 429 && retry && /^\d+$/.test(retry)) response.headers.set("Retry-After", retry);
-  } else if (operation === "sign-out" && upstream.status === 204) {
+  } else if ((operation === "sign-out" || operation === "accept-invitation") && upstream.status === 204) {
     response = new NextResponse(null, { status: 204, headers: NO_STORE });
+  } else if (operation === "create-agent" || operation === "resend-invitation") {
+    if (upstream.status !== (operation === "create-agent" ? 201 : 202)) return failure(502, "UPSTREAM_ERROR", "Invalid authentication response.");
+    const payload: unknown = await upstream.json().catch(() => null);
+    const data = payload && typeof payload === "object" && "data" in payload ? payload.data : null;
+    const delivery = operation === "create-agent" && data && typeof data === "object" && "invitationDelivery" in data ? data.invitationDelivery :
+      operation === "resend-invitation" && data && typeof data === "object" && "delivery" in data ? data.delivery : null;
+    if (!data || typeof data !== "object" || !["PENDING", "SENT", "FAILED"].includes(String(delivery))) return failure(502, "UPSTREAM_ERROR", "Invalid authentication response.");
+    if (operation === "create-agent") {
+      const agent = "agent" in data ? data.agent : null;
+      if (!isSafeAgent(agent)) return failure(502, "UPSTREAM_ERROR", "Invalid authentication response.");
+      response = NextResponse.json({ data: { agent, invitationDelivery: delivery } }, { status: upstream.status, headers: NO_STORE });
+    } else {
+      const agentId = "agentId" in data ? data.agentId : null;
+      if (typeof agentId !== "string" || !/^[0-9a-f-]{36}$/i.test(agentId)) return failure(502, "UPSTREAM_ERROR", "Invalid authentication response.");
+      response = NextResponse.json({ data: { agentId, delivery } }, { status: upstream.status, headers: NO_STORE });
+    }
   } else {
     const user = safeMe(await upstream.json().catch(() => null));
     if (!user || upstream.status !== 200) return failure(502, "UPSTREAM_ERROR", "Invalid authentication response.");
@@ -118,8 +142,20 @@ export async function handleAuth(request: NextRequest, operation: Operation): Pr
     }
     response.cookies.set(config.cookie, created, { ...cookieOptions, expires });
   }
-  if ((operation === "sign-out" && upstream.status === 204) || upstream.status === 401 && operation === "me") {
+  if ((operation === "sign-out" && upstream.status === 204) || upstream.status === 401 && (operation === "me" || adminOperation)) {
     response.cookies.set(config.cookie, "", { ...cookieOptions, expires: new Date(0), maxAge: 0 });
   }
   return response;
+}
+
+function isSafeAgent(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object") return false;
+  const agent = value as Record<string, unknown>;
+  const invitation = agent.invitation;
+  return ["id", "name", "email", "phone"].every(key => typeof agent[key] === "string") &&
+    agent.accountStatus === "ACTIVE" && agent.passwordActivatedAt === null &&
+    typeof agent.createdAt === "string" && Number.isFinite(Date.parse(agent.createdAt)) &&
+    typeof agent.updatedAt === "string" && invitation !== null && typeof invitation === "object" &&
+    "expiresAt" in invitation && typeof invitation.expiresAt === "string" && Number.isFinite(Date.parse(invitation.expiresAt)) &&
+    "status" in invitation && ["NONE", "PENDING", "EXPIRED", "ACCEPTED"].includes(String(invitation.status));
 }

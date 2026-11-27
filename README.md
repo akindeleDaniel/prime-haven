@@ -5,14 +5,16 @@ Fictional Nigerian property portfolio project. Concept project: listings are fic
 ## Local authentication slice
 
 Implemented: User/Session models, first-admin initialization, bcrypt hashing, sign-in/out, current user,
-PostgreSQL session expiration/revocation and explicit Next.js BFF handlers. Invitations, password
-reset/change, account administration, listings and authentication UI remain outside this slice.
+PostgreSQL session expiration/revocation, agent invitations/activation and explicit Next.js BFF handlers.
+Password reset/change, account deactivation, listings and authentication UI remain outside these slices.
 
 1. Install each app's lockfile with `npm ci` in `backend` and `frontend`.
 2. Copy the `.env.example` files to `backend/.env` and `frontend/.env.local`. Use local `prime_haven_dev`
    PostgreSQL credentials. Set the same random `BFF_SHARED_SECRET` (32 random bytes or more) in both
    server environments; never use `NEXT_PUBLIC_*` or commit environment files. Generate a value with
    `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`.
+   Configure the backend ZeptoMail send token and a verified sender address to deliver invitations. Automated
+   tests inject a mock sender and never contact ZeptoMail.
 3. From `backend`, run `npm run db:generate`, then `npm run db:migrate:local`. The guarded command
    confirms named loopback development PostgreSQL, creates a custom-format `pg_dump` backup under the
    OS temporary directory, then applies additive migrations. PostgreSQL tools must be on PATH.
@@ -23,14 +25,17 @@ reset/change, account administration, listings and authentication UI remain outs
 5. Run `npm run dev` in both apps. Defaults: Next.js `http://localhost:3000`, Express `http://localhost:3001`.
    Explicit `AUTH_ALLOW_LOCAL_HTTP=true` permits only loopback HTTP. Deployed origins require HTTPS.
 
-The current workspace's ignored local environment files have matching transport configuration.
-The real local administrator remains for the owner to initialize interactively; automated tests create
-accounts only inside an isolated test schema.
+The current workspace's ignored local environment files have matching transport configuration. The real local
+administrator remains for the owner to initialize interactively; automated tests create accounts only inside an
+isolated test schema. Invitation records are committed before email delivery; delivery failure leaves the account
+unactivated and available for an administrator to resend.
 
 Browser calls use `/api/v1/auth/sign-in`, `/api/v1/auth/sign-out` and `/api/v1/me` on Next.js.
 POST requires JSON, exact configured `Origin` and `X-Prime-Haven-CSRF: 1`. Sign-in body: `{email,password}`;
 sign-out: `{}`. Use same-origin fetch credentials. The custom-header/origin scheme avoids an extra
 CSRF-token endpoint; SameSite provides additional protection. Express has no browser CORS allowance.
+Administrator invitation handlers use `/api/v1/admin/agents` and `/api/v1/admin/agents/{id}/invitations`;
+public activation uses `/api/v1/auth/invitation-acceptances`. They use the same BFF origin/CSRF checks.
 
 HTTPS cookie: `__Host-ph-session; Path=/; HttpOnly; Secure; SameSite=Strict`, no Domain, seven-day absolute
 expiry. Explicit loopback HTTP uses `ph-session` without Secure. Express independently enforces twelve-hour

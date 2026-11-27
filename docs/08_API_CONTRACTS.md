@@ -4,7 +4,7 @@
 
 **Date:** 27 November 2026
 
-**Status:** Contracts designed for owner review. A01-A03 have a bounded local implementation and automated tests as of 27 November 2026; other endpoints remain designed, not implemented. See Section 1.5 and DOC-05 for implementation limits; owner acceptance/deployment are separate.
+**Status:** Contracts designed for owner review. A01-A03, A06, U02 and U04 have bounded local implementations and automated tests as of 27 November 2026; other endpoints remain designed, not implemented. See Sections 1.5-1.6 and DOC-05 for implementation limits; owner acceptance/deployment are separate.
 
 **Authority:** [FRS v1.3](01_REQUIREMENTS_BASELINE_FRS_v1.2.md), [approved REV-001 through REV-038](PRIME_HAVEN_APPROVED_SCOPE_DECISIONS.md), [architecture/DEC-027](02_TECHNICAL_ARCHITECTURE_AND_DECISIONS.md), [domain model](06_BACKEND_DOMAIN_MODEL.md), [physical design](07_PHYSICAL_DATABASE_DESIGN.md). [DOC-03](03_DELIVERY_ROADMAP_AND_TRACEABILITY.md) owns requirement traceability; [DOC-05](05_MASTER_IMPLEMENTATION_ROADMAP.md) owns task status. This document adds technical contracts within approved scope, not new product requirements.
 
@@ -86,6 +86,15 @@ The owner's 27 November 2026 implementation instruction authorizes resolving the
 - Coarse sign-in limit: 30/minute per actual backend socket address per process; BFF clients share a bucket. Never trust arbitrary forwarded client-IP headers. Persistent five-failure/15-minute account lockout is PostgreSQL-wide. Distributed request throttling/provider proxy trust still needs deployment verification; this implementation does not claim a shared limiter across replicas.
 - Strict Zod body schemas, no extra query keys, 8 KiB body cap, safe error envelope and no-store responses. Explicit route handlers exist only for sign-in, sign-out and me. Password/token values never enter security event logs. Current role middleware is available for later routes, without adding administrative features.
 - First administrator uses a local guarded interactive CLI, hidden password confirmation, normalized input and the same hashing policy. A database invariant lock serializes bootstrap; it refuses when any Administrator exists, never replaces credentials or revives an inactive administrator. No default credentials/public bootstrap endpoint. Future administrator mutations must reuse the invariant lock and preserve at least one active activated administrator.
+
+### 1.6 Implemented agent invitation slice
+
+- A06, U02 and U04 use explicit Express routes behind matching same-origin Next.js BFF handlers. Express authenticates the session and requires the current Administrator role for agent creation/resend; invitation acceptance is public through the bounded BFF transport.
+- New Agent rows are administratively ACTIVE but have no password hash or activation time, so the existing sign-in eligibility check rejects them. This keeps invitation activation distinct from DEACTIVATED status; an invitation cannot reactivate a deactivated account.
+- Invitation rows hold a SHA-256 hash of a random 256-bit opaque token, a 48-hour expiry, consumed/revoked timestamps and delivery state. Account plus first invitation and the non-PII AGENT_CREATED/INVITATION_ISSUED audit events commit before email dispatch. ZeptoMail sends afterward; delivery failure is recorded and does not remove the account. Resend locks the user, revokes every prior unused invitation and inserts a new one atomically.
+- Acceptance hashes the new password with the existing bcrypt policy before its transaction, locks the User first, rechecks account and invitation state, conditionally consumes the token, sets activation/password and appends PASSWORD_ACTIVATED in one transaction. Reused, expired, replaced or deactivated-account links receive generic `422 INVALID_OR_EXPIRED_TOKEN`; acceptance does not sign in.
+- ZeptoMail uses the fixed `https://api.zeptomail.com/v1.1/email` send API and server-only `ZEPTOMAIL_API_TOKEN`, `ZEPTOMAIL_FROM_EMAIL` and optional `ZEPTOMAIL_FROM_NAME`. The trusted configured APP_ORIGIN constructs the `/activate?token=...` link. The activation page/UI is not implemented. Tests inject a mocked mailer; no real messages are sent in local verification.
+- Audit persistence is limited to the three account lifecycle actions above; browsing/general audit features remain unimplemented. Delivery is synchronous with a bounded timeout after commit; failed or interrupted delivery leaves an unactivated account for administrator resend.
 
 ## 2. Shared resource schemas
 

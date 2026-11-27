@@ -2,7 +2,7 @@
 
 **Baseline:** [FRS v1.3](01_REQUIREMENTS_BASELINE_FRS_v1.2.md) and [38 approved REV decisions](PRIME_HAVEN_APPROVED_SCOPE_DECISIONS.md)
 
-**Updated:** 26 November 2026
+**Updated:** 27 November 2026
 
 **Authority:** Canonical task IDs, dependencies and status. DOC-03 maps requirements to these tasks; it does not maintain another competing phase sequence.
 
@@ -20,7 +20,7 @@ The scope audit is complete. This documentation synchronization is prepared for 
 | PH-DESIGN-001 | DOC-06 and DOC-07 synchronized to scope | Documentation prepared for review; no domain schema/migration implemented |
 | PH-DESIGN-002 | DOC-08 API contracts | Prepared for owner review; A01-A03 transport details resolved by the authorized authentication slice |
 | PH-DESIGN-003, PH-DESIGN-004 | Remaining workflow/security design deliverables below | Authentication subset resolved in DOC-08 Section 1.5; other scoped work remains |
-| Domain features/integration/quality/release | User/Session slice only; property/inquiry/etc. models absent | Remaining work planned; local slice verification below does not establish release/owner acceptance |
+| Domain features/integration/quality/release | User/Session/Invitation plus focused account-lifecycle audit events; property/inquiry/etc. models absent | Remaining work planned; local slice verification below does not establish release/owner acceptance |
 
 A file or commit proves presence, not passing tests, deployment or owner acceptance. Do not recreate existing foundations or mark them accepted from this table alone.
 
@@ -32,7 +32,17 @@ The owner's subsequent instruction explicitly authorizes a bounded subset of PH-
 - Implemented controlled interactive local first-admin initialization, bcrypt hashing, A01 sign-in/A02 sign-out/A03 current user, hashed opaque PostgreSQL sessions, expiry/revocation, current-account/role middleware and the corresponding three explicit Next.js BFF handlers. [DOC-08 Section 1.5](08_API_CONTRACTS.md#15-implemented-authentication-transport-slice) records cookie/CSRF/transport choices; README records local commands.
 - Local verification: 13 automated tests passed against real PostgreSQL in a temporary isolated `auth_test_*` schema and a built Next.js server; schema removed after tests. Covers concurrent bootstrap/lockout, safe tokens/projections, 12h/7d expiry, revocation races, active/activated accounts, role denial, validation/abuse controls and BFF cookie/CSRF/header handling. Backend/source/tool/test TypeScript, backend build, Prisma validation, frontend lint/TypeScript/production build passed.
 - Real development administrator is not initialized automatically: owner supplies the hidden password through `npm run admin:init`. Ignored local environment files contain matching generated server-only transport configuration; no credential is committed.
-- Invitations, reset/change-password, account administration/deactivation workflows, persistent domain audit, other domain models, full authentication UI and deployment remain unimplemented. The coarse per-process request limiter is not a distributed limiter; deployed proxy/HTTPS/cookie/abuse/provider evidence remains required. Full PH-AUTH-001/PH-DATA-001/PH-SETUP-004 and owner acceptance remain pending.
+- Invitation/activation, reset/change-password, account deactivation workflows, general audit browsing/event coverage, other domain models, full authentication UI and deployment remain unimplemented. The coarse per-process request limiter is not a distributed limiter; deployed proxy/HTTPS/cookie/abuse/provider evidence remains required. Full PH-AUTH-001/PH-DATA-001/PH-SETUP-004 and owner acceptance remain pending.
+
+### Agent invitation and activation slice - 27 November 2026
+
+The owner explicitly authorized administrator agent creation, resend, single-use 48-hour invitation acceptance, ZeptoMail delivery integration and same-origin Next.js BFF handlers. This is a bounded implementation, not completion of all PH-AUTH-001 account administration.
+
+- Added additive migration `20261127020000_agent_invitations` for hashed Invitation records, delivery state, relationships and the three account lifecycle AuditLog events. Applied only to confirmed loopback `prime_haven_dev` using `db:migrate:local`, which created a pre-migration backup. No data reset or real account creation was performed.
+- Administrator-only `POST /admin/agents` creates an AGENT with no password hash/activation timestamp, persists account and invitation before email delivery, and reports delivery state. Although administratively ACTIVE, the account cannot sign in until activated; it remains distinct from a deactivated account. `POST /admin/agents/{id}/invitations` atomically revokes prior links before issuing a replacement. Public `POST /auth/invitation-acceptances` verifies and consumes one link, sets the bcrypt password/activation timestamp and records a safe audit event in one transaction; it does not sign the agent in.
+- ZeptoMail uses a fixed provider endpoint and server-only credentials. Automated tests inject a mock transport; no real email was sent. Provider credentials/domain readiness and live delivery remain unverified. Activation UI is not implemented.
+- Verification: 17 auth/invitation tests passed using PostgreSQL in a fresh temporary `auth_test_*` schema and a built Next.js server; schema cleanup is test-scoped. Backend build/type checks, Prisma validation, frontend lint/type check/production build passed. This does not establish full PH-AUTH-001 acceptance.
+- Password recovery, agent deactivation/reactivation, general audit endpoints and remaining account-management behavior remain for their assigned scope.
 
 ## 2. ID reconciliation and phase ownership
 

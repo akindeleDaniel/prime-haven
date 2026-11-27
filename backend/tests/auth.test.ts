@@ -17,6 +17,7 @@ import { ApiError, requestContext, errorHandler } from "../src/http/errors.js";
 import { createApp } from "../src/app.js";
 import { loginRateLimit, requireAuthentication, requireRoles } from "../src/auth/middleware.js";
 import { getEnvironment } from "../src/config/environment.js";
+import type { InvitationEmail } from "../src/auth/email.js";
 
 const origin = "https://prime-haven.test";
 const key = randomBytes(32).toString("hex");
@@ -31,6 +32,8 @@ let api: string;
 let bff: string;
 let adminId: string;
 let namespaceCreated = false;
+const sentInvitationEmails: InvitationEmail[] = [];
+let failNextInvitationEmail = false;
 
 const denied = (status: number) => (error: unknown) => error instanceof ApiError && error.status === status;
 async function listen(server: Server): Promise<string> {
@@ -60,9 +63,14 @@ before(async () => {
   namespaceCreated = true;
   url.searchParams.set("schema", schema);
   db = createDatabaseClient(url.toString());
-  const sql = await readFile("prisma/migrations/20261127010000_auth_foundation/migration.sql", "utf8");
-  for (const statement of sql.split(";").filter(part => part.trim())) await db.$executeRawUnsafe(statement);
-  service = new AuthService(db, () => new Date(time));
+  for (const migration of ["20261127010000_auth_foundation", "20261127020000_agent_invitations"]) {
+    const sql = await readFile(`prisma/migrations/${migration}/migration.sql`, "utf8");
+    for (const statement of sql.split(";").filter(part => part.trim())) await db.$executeRawUnsafe(statement);
+  }
+  service = new AuthService(db, () => new Date(time), { sendInvitation: async email => {
+    sentInvitationEmails.push(email);
+    if (failNextInvitationEmail) { failNextInvitationEmail = false; throw new Error("Mock delivery failure"); }
+  } });
   const bootstrapResults = await Promise.allSettled(Array.from({ length: 2 }, () => service.bootstrap({ name: "Test Administrator", email: "admin@example.test", phone: "+2348000000001", password })));
   const created = bootstrapResults.filter(result => result.status === "fulfilled");
   assert.equal(created.length, 1, "Concurrent bootstrap must initialize only one administrator.");
@@ -213,6 +221,100 @@ test("database constraints protect normalized email, activation pairs, hashes an
   await assert.rejects(db.user.delete({ where: { id: adminId } }));
 });
 
+test("only Administrators can create an unactivated agent; duplicate emails are rejected", async () => {
+  const noSession = await apiFetch("/admin/agents", { method: "POST", body: JSON.stringify({ name: "Invited Agent", email: "invited@example.test", phone: "+2348000000010" }) });
+  assert.equal(noSession.status, 401);
+  const agentActor = await db.user.create({ data: { name: "Agent Actor", email: "actor@example.test", phone: "+2348000000011", role: "AGENT", passwordHash: await hashPassword(password), passwordActivatedAt: new Date(time) } });
+  const agentSession = await service.login(agentActor.email, password);
+  assert.equal((await apiFetch(`/admin/agents/${agentActor.id}/invitations`, { method: "POST", body: "{}" })).status, 401);
+  assert.equal((await apiFetch(`/admin/agents/${agentActor.id}/invitations`, { method: "POST", headers: { Authorization: `Bearer ${agentSession.token}` }, body: "{}" })).status, 403);
+  const deniedCreate = await apiFetch("/admin/agents", { method: "POST", headers: { Authorization: `Bearer ${agentSession.token}` }, body: JSON.stringify({ name: "Invited Agent", email: "invited@example.test", phone: "+2348000000010" }) });
+  assert.equal(deniedCreate.status, 403);
+  const adminSession = await service.login("admin@example.test", password);
+  const response = await apiFetch("/admin/agents", { method: "POST", headers: { Authorization: `Bearer ${adminSession.token}` }, body: JSON.stringify({ name: "Invited Agent", email: " INVITED@example.test ", phone: "+2348000000010" }) });
+  assert.equal(response.status, 201);
+  const result = await response.json();
+  const agent = result.data.agent;
+  assert.equal(result.data.invitationDelivery, "SENT");
+  assert.equal(agent.accountStatus, "ACTIVE");
+  assert.equal(agent.passwordActivatedAt, null);
+  assert(!JSON.stringify(result).includes(sentInvitationEmails.at(-1)!.token));
+  const user = await db.user.findUniqueOrThrow({ where: { id: agent.id } });
+  assert.equal(user.role, "AGENT");
+  assert.equal(user.passwordHash, null);
+  await assert.rejects(service.login(user.email, password), denied(401));
+  const sent = sentInvitationEmails.at(-1)!;
+  const stored = await db.invitation.findUniqueOrThrow({ where: { tokenHash: hashToken(sent.token) } });
+  assert.notEqual(stored.tokenHash, sent.token);
+  assert.equal(stored.expiresAt.getTime() - stored.createdAt.getTime(), 48 * 60 * 60 * 1000);
+  assert.equal(await db.auditLog.count({ where: { affectedUserId: user.id, action: "AGENT_CREATED" } }), 1);
+  assert.equal(await db.auditLog.count({ where: { affectedUserId: user.id, action: "INVITATION_ISSUED" } }), 1);
+  const duplicate = await apiFetch("/admin/agents", { method: "POST", headers: { Authorization: `Bearer ${adminSession.token}` }, body: JSON.stringify({ name: "Duplicate", email: "invited@example.test", phone: "+2348000000012" }) });
+  assert.equal(duplicate.status, 409);
+  assert.equal((await duplicate.json()).error.code, "EMAIL_IN_USE");
+});
+
+test("resending revokes prior invitation and acceptance activates exactly once", async () => {
+  const adminSession = await service.login("admin@example.test", password);
+  const created = await apiFetch("/admin/agents", { method: "POST", headers: { Authorization: `Bearer ${adminSession.token}` }, body: JSON.stringify({ name: "Activation Agent", email: "activation@example.test", phone: "+2348000000013" }) });
+  const firstAgent = (await created.json()).data.agent;
+  const firstEmail = sentInvitationEmails.at(-1)!;
+  const firstRow = await db.invitation.findUniqueOrThrow({ where: { tokenHash: hashToken(firstEmail.token) } });
+  const resent = await apiFetch(`/admin/agents/${firstAgent.id}/invitations`, { method: "POST", headers: { Authorization: `Bearer ${adminSession.token}` }, body: "{}" });
+  assert.equal(resent.status, 202);
+  const secondEmail = sentInvitationEmails.at(-1)!;
+  assert.notEqual(firstEmail.token, secondEmail.token);
+  assert((await db.invitation.findUniqueOrThrow({ where: { id: firstRow.id } })).revokedAt);
+  await assert.rejects(service.acceptInvitation({ token: firstEmail.token, password }), denied(422));
+  const attempts = await Promise.allSettled([service.acceptInvitation({ token: secondEmail.token, password }), service.acceptInvitation({ token: secondEmail.token, password })]);
+  assert.equal(attempts.filter(attempt => attempt.status === "fulfilled").length, 1);
+  assert.equal(attempts.filter(attempt => attempt.status === "rejected").length, 1);
+  const replay = await apiFetch("/auth/invitation-acceptances", { method: "POST", body: JSON.stringify({ token: secondEmail.token, password }) });
+  assert.equal(replay.status, 422);
+  const acceptedUser = await db.user.findUniqueOrThrow({ where: { id: firstAgent.id } });
+  assert.equal(acceptedUser.role, "AGENT");
+  assert(acceptedUser.passwordHash);
+  assert(acceptedUser.passwordActivatedAt);
+  assert.equal(await db.auditLog.count({ where: { affectedUserId: firstAgent.id, action: "PASSWORD_ACTIVATED" } }), 1);
+  assert.equal((await service.login(acceptedUser.email, password)).user.id, acceptedUser.id);
+  await assert.rejects(service.resendAgentInvitation(adminSession.user.id, firstAgent.id), denied(409));
+});
+
+test("expired or deactivated invitations cannot activate an account", async () => {
+  const start = time;
+  try {
+    const adminSession = await service.login("admin@example.test", password);
+    const response = await apiFetch("/admin/agents", { method: "POST", headers: { Authorization: `Bearer ${adminSession.token}` }, body: JSON.stringify({ name: "Expired Agent", email: "expired@example.test", phone: "+2348000000014" }) });
+    assert.equal(response.status, 201);
+    const expiredToken = sentInvitationEmails.at(-1)!.token;
+    time += 48 * 60 * 60 * 1000;
+    await assert.rejects(service.acceptInvitation({ token: expiredToken, password }), denied(422));
+    time = start;
+    const second = await apiFetch("/admin/agents", { method: "POST", headers: { Authorization: `Bearer ${adminSession.token}` }, body: JSON.stringify({ name: "Deactivated Agent", email: "deactivated@example.test", phone: "+2348000000015" }) });
+    const deactivated = (await second.json()).data.agent;
+    const deactivatedToken = sentInvitationEmails.at(-1)!.token;
+    await db.user.update({ where: { id: deactivated.id }, data: { accountStatus: "DEACTIVATED", deactivatedAt: new Date(time) } });
+    await assert.rejects(service.acceptInvitation({ token: deactivatedToken, password }), denied(422));
+    assert.equal((await db.user.findUniqueOrThrow({ where: { id: deactivated.id } })).passwordHash, null);
+    assert.equal((await db.user.findUniqueOrThrow({ where: { id: deactivated.id } })).accountStatus, "DEACTIVATED");
+  } finally { time = start; }
+});
+
+test("email failure preserves an unactivated account and records delivery failure", async () => {
+  failNextInvitationEmail = true;
+  const adminSession = await service.login("admin@example.test", password);
+  const response = await apiFetch("/admin/agents", { method: "POST", headers: { Authorization: `Bearer ${adminSession.token}` }, body: JSON.stringify({ name: "Mail Failure", email: "mail-failure@example.test", phone: "+2348000000016" }) });
+  assert.equal(response.status, 201);
+  const data = (await response.json()).data;
+  assert.equal(data.invitationDelivery, "FAILED");
+  assert.equal(data.agent.invitation.status, "PENDING");
+  const user = await db.user.findUniqueOrThrow({ where: { id: data.agent.id } });
+  assert.equal(user.passwordHash, null);
+  assert.equal(user.passwordActivatedAt, null);
+  const invitation = await db.invitation.findFirstOrThrow({ where: { userId: user.id } });
+  assert.equal(invitation.deliveryStatus, "FAILED");
+});
+
 test("Express rejects hostile origin/transport, unexpected keys, malformed JSON/query and oversized bodies", async () => {
   assert.equal((await fetch(api + "/api/v1/me")).status, 403);
   const invalidHeaders: Record<string, string>[] = [{ Origin: "https://evil.test" }, { "X-Prime-Haven-CSRF": "" }, { "Content-Type": "text/plain" }];
@@ -291,6 +393,21 @@ test("real Next BFF sets secure host-only cookie, strips secrets, enforces CSRF 
   assert.equal((await me.json()).data.id,adminId);
   assert.match(me.headers.get("Cache-Control")!,/no-store/);
   assert.equal((await fetch(bff+"/api/v1/me", {headers:{Authorization:"Bearer attacker"}})).status,401);
+  const adminCookie = { ...headers, Cookie: sessionCookie };
+  const deniedCreate = await fetch(bff+"/api/v1/admin/agents", { method:"POST",headers,body:JSON.stringify({name:"No Session",email:"bff-denied@example.test",phone:"+2348000000020"}) });
+  assert.equal(deniedCreate.status,401);
+  const createAgent = await fetch(bff+"/api/v1/admin/agents", { method:"POST",headers:adminCookie,body:JSON.stringify({name:"BFF Agent",email:"bff-agent@example.test",phone:"+2348000000021"}) });
+  assert.equal(createAgent.status,201);
+  const createResult = await createAgent.json();
+  const bffAgentId = createResult.data.agent.id as string;
+  const firstInvitationToken = sentInvitationEmails.at(-1)!.token;
+  assert(!JSON.stringify(createResult).includes(firstInvitationToken));
+  const resend = await fetch(bff+`/api/v1/admin/agents/${bffAgentId}/invitations`, { method:"POST",headers:adminCookie,body:"{}" });
+  assert.equal(resend.status,202);
+  const replacementToken = sentInvitationEmails.at(-1)!.token;
+  assert.notEqual(replacementToken, firstInvitationToken);
+  const activate = await fetch(bff+"/api/v1/auth/invitation-acceptances", { method:"POST",headers,body:JSON.stringify({token:replacementToken,password}) });
+  assert.equal(activate.status,204);
   assert.equal((await fetch(bff+"/api/v1/auth/sign-out",{method:"POST",headers:{...headers,Cookie:sessionCookie},body:"{}"})).status,204);
   const replay = await fetch(bff+"/api/v1/me", {headers:{Cookie:sessionCookie}});
   assert.equal(replay.status,401);

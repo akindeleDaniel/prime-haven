@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Router } from "express";
 import { bearer, currentUser, loginRateLimit, requireAuthentication, requireRoles } from "../auth/middleware.js";
 import type { AuthService } from "../auth/service.js";
-import { emptySchema, loginSchema, parseInput } from "../auth/validation.js";
+import { agentCreateSchema, emptySchema, loginSchema, parseInput } from "../auth/validation.js";
 
 export function authRouter(service: AuthService): Router {
   const router = Router();
@@ -23,6 +23,18 @@ export function authRouter(service: AuthService): Router {
     const user = currentUser(request);
     response.setHeader("ETag", `"${createHash("sha256").update(JSON.stringify(user)).digest("hex")}"`);
     response.json({ data: user });
+  });
+  router.post("/auth/invitation-acceptances", loginRateLimit(), async (request, response) => {
+    await service.acceptInvitation(request.body);
+    response.status(204).end();
+  });
+  router.post("/admin/agents", requireAuthentication(service), requireRoles("ADMINISTRATOR"), async (request, response) => {
+    const input = parseInput(agentCreateSchema, request.body);
+    response.status(201).json({ data: await service.createAgent(currentUser(request).id, input) });
+  });
+  router.post("/admin/agents/:id/invitations", requireAuthentication(service), requireRoles("ADMINISTRATOR"), async (request, response) => {
+    parseInput(emptySchema, request.body ?? {});
+    response.status(202).json({ data: await service.resendAgentInvitation(currentUser(request).id, request.params.id) });
   });
   return router;
 }

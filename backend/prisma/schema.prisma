@@ -17,6 +17,23 @@ enum AccountStatus {
   DEACTIVATED
 }
 
+enum InvitationDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum AuditAction {
+  AGENT_CREATED
+  INVITATION_ISSUED
+  PASSWORD_ACTIVATED
+}
+
+enum AuditSubjectType {
+  USER
+  SECURITY
+}
+
 model User {
   id                  String        @id @default(uuid()) @db.Uuid
   name                String
@@ -28,12 +45,15 @@ model User {
   passwordActivatedAt DateTime?     @db.Timestamptz(3)
   role                UserRole
   accountStatus       AccountStatus @default(ACTIVE)
-  deactivatedAt       DateTime?      @db.Timestamptz(3)
+  deactivatedAt       DateTime?     @db.Timestamptz(3)
   failedLoginCount    Int           @default(0)
-  lockoutUntil        DateTime?      @db.Timestamptz(3)
-  createdAt           DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt           DateTime       @updatedAt @db.Timestamptz(3)
+  lockoutUntil        DateTime?     @db.Timestamptz(3)
+  createdAt           DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime      @updatedAt @db.Timestamptz(3)
   sessions            Session[]
+  invitations         Invitation[]
+  actorAuditEvents    AuditLog[]    @relation("AuditActor")
+  subjectAuditEvents  AuditLog[]    @relation("AuditAffectedUser")
 }
 
 model Session {
@@ -49,4 +69,35 @@ model Session {
 
   @@index([userId, revokedAt])
   @@index([absoluteExpiresAt])
+}
+
+model Invitation {
+  id             String                   @id @default(uuid()) @db.Uuid
+  userId         String                   @db.Uuid
+  tokenHash      String                   @unique
+  createdAt      DateTime                 @default(now()) @db.Timestamptz(3)
+  expiresAt      DateTime                 @db.Timestamptz(3)
+  consumedAt     DateTime?                @db.Timestamptz(3)
+  revokedAt      DateTime?                @db.Timestamptz(3)
+  deliveryStatus InvitationDeliveryStatus @default(PENDING)
+  user           User                     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, revokedAt, consumedAt])
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id               String           @id @default(uuid()) @db.Uuid
+  actorId          String?          @db.Uuid
+  affectedUserId   String?          @db.Uuid
+  action           AuditAction
+  subjectType      AuditSubjectType
+  subjectReference String
+  summary          String
+  createdAt        DateTime         @default(now()) @db.Timestamptz(3)
+  actor            User?            @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  affectedUser     User?            @relation("AuditAffectedUser", fields: [affectedUserId], references: [id], onDelete: SetNull)
+
+  @@index([action, createdAt])
+  @@index([affectedUserId, createdAt])
 }

@@ -6,7 +6,7 @@
 
 **Status:** Synchronized design for review; no domain implementation or verification claimed.
 
-**27 November 2026 implementation note:** The owner subsequently authorized the first authentication slice: User/Session models and their relationship, bootstrap, sign-in/out/current-user and tests. Other entities/workflows below remain designs. DOC-05 records implementation evidence; this note does not mark the full domain design accepted.
+**27 November 2026 implementation note:** The owner subsequently authorized two bounded authentication slices: User/Session/Invitation relationships, bootstrap, sign-in/out/current-user, administrator agent invitation/resend/activation and focused lifecycle audit events. Other entities/workflows below remain designs. DOC-05 records implementation evidence; this note does not mark the full domain design accepted.
 
 ## 1. Scope and model boundaries
 
