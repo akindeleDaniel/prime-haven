@@ -51,6 +51,60 @@ Explain unfamiliar concepts, important changes and trade-offs in plain English w
 - Fictional/licensed content only. Exact notice "Concept project: listings are fictional" appears in footer and every listing page.
 - Prefer free/low-cost hosting, verify provider limits before deployment and never purchase without approval.
 
+## Mandatory Figma-First Frontend Workflow
+
+Every user-facing page, interface, dashboard and significant UI component must follow this process:
+
+### Step 1 — Understand requirements
+
+Review the approved requirements, target users, functionality and relevant API contracts.
+
+### Step 2 — Design in Figma
+
+Use the Figma plugin to create a professional, editable design before writing frontend UI code.
+
+Consider:
+
+- Desktop and mobile layouts.
+- Visual hierarchy and typography.
+- Consistent colours and components.
+- Accessibility and responsiveness.
+- Loading, empty, error and success states where applicable.
+
+### Step 3 — Product-owner review
+
+Present the Figma design link and briefly explain the design choices.
+
+Stop and wait for explicit product-owner approval.
+
+### Step 4 — Design refinement
+
+Apply requested corrections in Figma and obtain approval before implementation.
+
+### Step 5 — Implementation
+
+Only after approval:
+
+- Translate the approved Figma design into Next.js and TypeScript.
+- Reuse existing shared components.
+- Integrate the required backend APIs.
+- Preserve the approved design and functionality.
+
+### Step 6 — Verification
+
+Compare the implemented interface against the approved Figma design. Verify responsiveness, accessibility, functionality and visual consistency.
+
+### Mandatory restrictions
+
+- Never implement an unapproved frontend design.
+- Never generate an entire frontend without individual page or clearly scoped page-group approval.
+- Do not make significant visual changes to approved designs without permission.
+- If the Figma plugin is unavailable, do not bypass the approval process.
+- Backend implementation and non-visual server-side integration may proceed independently.
+- Do not create additional planning documents for this workflow.
+
+This rule applies throughout the entire Prime Haven project, including the Public Website, Agent Portal and Administration Portal.
+
 ## 5. Verification, documentation and reporting
 
 Verify assigned acceptance criteria and inspect the diff; run task-relevant checks when requested/authorized. Choose unit/integration/security tests, lint, type checks/build according to scope. Documentation work needs consistency/reference checks, not unrelated application execution. Never claim planned tests passed, code is proven or work is owner-accepted without evidence.
