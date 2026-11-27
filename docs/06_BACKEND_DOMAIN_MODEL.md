@@ -6,6 +6,8 @@
 
 **Status:** Synchronized design for review; no domain implementation or verification claimed.
 
+**27 November 2026 implementation note:** The owner subsequently authorized the first authentication slice: User/Session models and their relationship, bootstrap, sign-in/out/current-user and tests. Other entities/workflows below remain designs. DOC-05 records implementation evidence; this note does not mark the full domain design accepted.
+
 ## 1. Scope and model boundaries
 
 This logical model explains entities, relationships and business behaviour. DOC-07 translates it into PostgreSQL/Prisma structures. FRS defines product behaviour; technical metadata below supports that behaviour and is not a new feature. Current data is stored once on Property; there is no separate revision/history model. Browser favourites need no database table. Approximate views need no visitor identity or server session-marker records.

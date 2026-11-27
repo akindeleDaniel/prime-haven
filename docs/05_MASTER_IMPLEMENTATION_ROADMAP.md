@@ -15,13 +15,24 @@ The scope audit is complete. This documentation synchronization is prepared for 
 | Repository | Git history and working tree inspected | Established; existing untracked documents preserved |
 | PH-SETUP-001 frontend | frontend/src/app, package/config files; initialization commit 250e826 | Scaffold present; local check/acceptance and Vercel deployment evidence not established by this update |
 | PH-SETUP-002 backend | Express app/server/config/health route; commit 2607774 | Foundation present; health is process liveness, not database readiness; Render deployment unverified |
-| PH-SETUP-003 database tooling | Prisma config, adapter client, empty domain schema, empty migration; commit d07ad92 | Tooling present; historical local migration application was reported, not rechecked; current connectivity/restore/provider limits unverified |
+| PH-SETUP-003 database tooling | Existing Prisma adapter and preserved empty initial migration; User/Session slice added 27 November | Local connectivity/additive migration verified for the slice below; independent restore/provider limits remain unverified |
 | PH-SETUP-004 transport | DEC-027; commit a453c8f documents approval | BFF topology approved; implementation and deployed cookie/CSRF evidence pending |
 | PH-DESIGN-001 | DOC-06 and DOC-07 synchronized to scope | Documentation prepared for review; no domain schema/migration implemented |
-| PH-DESIGN-002, PH-DESIGN-003, PH-DESIGN-004 | API/workflow/security design deliverables below | Remaining scoped design work; existing relevant material should be reused |
-| Domain features/integration/quality/release | Schema has no domain models; source inventory is scaffolding | Planned; no new verification/acceptance claimed |
+| PH-DESIGN-002 | DOC-08 API contracts | Prepared for owner review; A01-A03 transport details resolved by the authorized authentication slice |
+| PH-DESIGN-003, PH-DESIGN-004 | Remaining workflow/security design deliverables below | Authentication subset resolved in DOC-08 Section 1.5; other scoped work remains |
+| Domain features/integration/quality/release | User/Session slice only; property/inquiry/etc. models absent | Remaining work planned; local slice verification below does not establish release/owner acceptance |
 
 A file or commit proves presence, not passing tests, deployment or owner acceptance. Do not recreate existing foundations or mark them accepted from this table alone.
+
+### First authentication slice - 27 November 2026
+
+The owner's subsequent instruction explicitly authorizes a bounded subset of PH-DATA-001, PH-BE-001, PH-AUTH-001 and PH-SETUP-004, including resolving the necessary technical security details within implementation. It does not authorize remaining authentication/domain features or imply acceptance of all earlier design documents.
+
+- Implemented User/Session models and additive migration `20261127010000_auth_foundation`; the existing empty initialization migration is unchanged. Applied only to confirmed loopback `prime_haven_dev`, after an independent local `pg_dump` backup; no reset or production access.
+- Implemented controlled interactive local first-admin initialization, bcrypt hashing, A01 sign-in/A02 sign-out/A03 current user, hashed opaque PostgreSQL sessions, expiry/revocation, current-account/role middleware and the corresponding three explicit Next.js BFF handlers. [DOC-08 Section 1.5](08_API_CONTRACTS.md#15-implemented-authentication-transport-slice) records cookie/CSRF/transport choices; README records local commands.
+- Local verification: 13 automated tests passed against real PostgreSQL in a temporary isolated `auth_test_*` schema and a built Next.js server; schema removed after tests. Covers concurrent bootstrap/lockout, safe tokens/projections, 12h/7d expiry, revocation races, active/activated accounts, role denial, validation/abuse controls and BFF cookie/CSRF/header handling. Backend/source/tool/test TypeScript, backend build, Prisma validation, frontend lint/TypeScript/production build passed.
+- Real development administrator is not initialized automatically: owner supplies the hidden password through `npm run admin:init`. Ignored local environment files contain matching generated server-only transport configuration; no credential is committed.
+- Invitations, reset/change-password, account administration/deactivation workflows, persistent domain audit, other domain models, full authentication UI and deployment remain unimplemented. The coarse per-process request limiter is not a distributed limiter; deployed proxy/HTTPS/cookie/abuse/provider evidence remains required. Full PH-AUTH-001/PH-DATA-001/PH-SETUP-004 and owner acceptance remain pending.
 
 ## 2. ID reconciliation and phase ownership
 

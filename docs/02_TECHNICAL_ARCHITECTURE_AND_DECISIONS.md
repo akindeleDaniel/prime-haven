@@ -200,6 +200,8 @@ DEC-027 resolves the request path; all 38 product decisions are approved. These 
 - PH-DESIGN-002: typed API requests/responses, error/pagination conventions, private preview and safe public projections.
 - PH-DESIGN-003: transaction boundaries, current-owner checks, edited-content submission, deactivation, simple manual notification retry, privacy cleanup and image recovery.
 - PH-DESIGN-004: documented cookie creation/forwarding/clearing contract, CSRF/token/origin enforcement, session security-event revocation, rate-limit/proxy trust and direct Express access checks. Revoke existing sessions after password reset/change; current account status and role remain authoritative. Rotation cadence is an engineering choice and never extends absolute expiry.
+
+The owner's 27 November 2026 first-authentication implementation instruction resolves the bounded sign-in/out/current-user transport and password details in [DOC-08 Section 1.5](08_API_CONTRACTS.md#15-implemented-authentication-transport-slice). It retains DEC-027, independently authorized Express sessions and strict origin/custom-header CSRF checks; it does not introduce a provider/framework or complete the remaining invitation/reset/security/deployment work.
 - PH-SETUP-001, PH-SETUP-002, PH-SETUP-003, PH-SETUP-004 and release: verify existing local foundations rather than recreating them; deployed origins, preview policy, host plan/region/eligibility/limits, connection pooling, cookie transport, backup destination/retention and restore drill. No purchases or alternative providers without approval.
 - Deployment acceptance: dated evidence of free/low-cost feasibility, cold/warm latency and provider recovery capabilities; the planned Vercel smoke check above is not completion evidence.
 

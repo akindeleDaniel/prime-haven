@@ -6,6 +6,8 @@
 
 **Status:** Synchronized documentation for owner review; proposed design, not implemented or verified.
 
+**27 November 2026 implementation note:** The owner's bounded authentication task implements User and Session plus additive migration `20261127010000_auth_foundation`; the applied empty initialization migration is preserved. Other models remain proposed. Sign-in/session transport details are in DOC-08 Section 1.5; actual local checks/status belong to DOC-05.
+
 ## 1. Scope and conventions
 
 Express is authoritative for business/security operations. Use existing PostgreSQL/Prisma adapter/Migrate and DEC-027 BFF. Constraints supplement validation, not authorization. No image binaries, visitor accounts or favourites in PostgreSQL.

@@ -6,3 +6,47 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum UserRole {
+  AGENT
+  ADMINISTRATOR
+}
+
+enum AccountStatus {
+  ACTIVE
+  DEACTIVATED
+}
+
+model User {
+  id                  String        @id @default(uuid()) @db.Uuid
+  name                String
+  email               String        @unique
+  phone               String
+  photoUrl            String?
+  biography           String?
+  passwordHash        String?
+  passwordActivatedAt DateTime?     @db.Timestamptz(3)
+  role                UserRole
+  accountStatus       AccountStatus @default(ACTIVE)
+  deactivatedAt       DateTime?      @db.Timestamptz(3)
+  failedLoginCount    Int           @default(0)
+  lockoutUntil        DateTime?      @db.Timestamptz(3)
+  createdAt           DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime       @updatedAt @db.Timestamptz(3)
+  sessions            Session[]
+}
+
+model Session {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @db.Uuid
+  tokenHash         String    @unique
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  lastActivityAt    DateTime  @db.Timestamptz(3)
+  idleExpiresAt     DateTime  @db.Timestamptz(3)
+  absoluteExpiresAt DateTime  @db.Timestamptz(3)
+  revokedAt         DateTime? @db.Timestamptz(3)
+  user              User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, revokedAt])
+  @@index([absoluteExpiresAt])
+}
