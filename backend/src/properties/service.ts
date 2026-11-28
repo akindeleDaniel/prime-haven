@@ -5,7 +5,8 @@ import { parseInput } from "../auth/validation.js";
 import { type Content, contentSchema, contentKeys, missingRequirements, normalizeContent, parseId, parseQuery, writeSchema } from "./validation.js";
 import { propertyEtag } from "./identity.js";
 
-const include = { amenities: { include: { amenity: true } } } as const;
+export const propertyInclude = { amenities: { include: { amenity: true } }, images: { include: { asset: true }, orderBy: { position: "asc" as const } } } as const;
+const include = propertyInclude;
 type Row = Prisma.PropertyGetPayload<{ include: typeof include }>;
 const options = { maxWait: 15000, timeout: 15000 };
 const notFound = () => new ApiError(404, "NOT_FOUND", "Property not found.");
@@ -22,16 +23,19 @@ function databaseContent(content: Content) {
   return { ...rest, priceNaira: priceNaira == null ? priceNaira : BigInt(priceNaira),
     state: state == null ? state : state.replaceAll(" ", "_") as NigerianState };
 }
-function projection(row: Row) {
+export function propertyProjection(row: Row) {
   const content = contentOf(row);
   return { id: row.id, ownerId: row.ownerId, reference: row.reference, version: row.version, etag: propertyEtag(row),
-    status: row.status, content, gallery: [], amenityIds: row.amenities.map(item => item.amenityId),
+    status: row.status, content, gallery: row.images.map(image => ({ id: image.id, assetId: image.assetId, url: image.asset.deliveryUrl,
+      width: image.asset.width, height: image.asset.height, position: image.position, isCover: image.isCover, caption: image.caption, altText: image.altText })),
+    amenityIds: row.amenities.map(item => item.amenityId),
     amenities: row.amenities.map(({ amenity }) => ({ id: amenity.id, name: amenity.name, isActive: amenity.isActive })),
     slug: row.slug, publishedAt: row.publishedAt, submittedAt: row.submittedAt, archivedAt: row.archivedAt,
     rejectionReason: row.rejectionReason, verified: row.verified, verifiedById: row.verifiedById, verifiedAt: row.verifiedAt,
     featured: row.featured, featuredAt: row.featuredAt, viewCount: "0", createdAt: row.createdAt, updatedAt: row.updatedAt,
-    missingRequirements: missingRequirements(content) };
+    missingRequirements: missingRequirements(content).filter(field => field.path !== "gallery" || row.images.length < 3 || !row.images.some(image => image.isCover)) };
 }
+const projection = propertyProjection;
 
 export class PropertyService {
   constructor(private db: PrismaClient) {}

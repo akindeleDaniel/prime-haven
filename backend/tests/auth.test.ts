@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { readFile, access } from "node:fs/promises";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
@@ -21,6 +21,11 @@ import { type InvitationEmail, ZeptoMailInvitationMailer } from "../src/auth/ema
 import { PropertyService } from "../src/properties/service.js";
 import { generatePropertySlug } from "../src/properties/identity.js";
 import { contentSchema, normalizeContent, states } from "../src/properties/validation.js";
+import sharp from "sharp";
+import { ImageService } from "../src/images/service.js";
+import { decodeImage } from "../src/images/validation.js";
+import { MockCloudinary } from "./cloudinary.mock.js";
+import { CloudinaryHttpProvider } from "../src/images/cloudinary.js";
 
 const origin = "https://prime-haven.test";
 const key = randomBytes(32).toString("hex");
@@ -29,6 +34,9 @@ const password = `Test-${randomBytes(18).toString("hex")}`;
 let time = Date.now();
 let db: ReturnType<typeof createDatabaseClient>;
 let service: AuthService;
+let images: ImageService;
+let imageTime = Date.now();
+const cloudinary = new MockCloudinary();
 let backend: Server;
 let next: ChildProcess | undefined;
 let api: string;
@@ -68,7 +76,7 @@ before(async () => {
   namespaceCreated = true;
   url.searchParams.set("schema", schema);
   db = createDatabaseClient(url.toString());
-  for (const migration of ["20261127010000_auth_foundation", "20261127020000_agent_invitations", "20261128010000_password_recovery", "20261128020000_property_drafts"]) {
+  for (const migration of ["20261127010000_auth_foundation", "20261127020000_agent_invitations", "20261128010000_password_recovery", "20261128020000_property_drafts", "20261128030000_property_images"]) {
     const sql = await readFile(`prisma/migrations/${migration}/migration.sql`, "utf8");
     for (const statement of sql.split(";").filter(part => part.trim())) await db.$executeRawUnsafe(statement);
   }
@@ -85,7 +93,8 @@ before(async () => {
   assert.equal(bootstrapResults.filter(result => result.status === "rejected").length, 1);
   assert(created[0].status === "fulfilled");
   adminId = created[0].value;
-  backend = createServer(createApp({ appOrigin: origin, bffSharedSecret: key }, service, new PropertyService(db)));
+  images = new ImageService(db, cloudinary, key, () => new Date(imageTime));
+  backend = createServer(createApp({ appOrigin: origin, bffSharedSecret: key }, service, new PropertyService(db), images));
   api = await listen(backend);
 }, { timeout: 30_000 });
 
@@ -628,6 +637,201 @@ test("concurrent references remain unique beyond six digits", async () => {
   assert(drafts.every(({data})=>/^PH-100000[0-3]$/.test(data.reference)));
 });
 
+test("image decoder checks actual JPEG/PNG/WebP content, corrupt data and exact byte limits", async () => {
+  for (const format of ["jpeg","png","webp"] as const) {
+    const bytes = await sharp({create:{width:3,height:2,channels:3,background:"#668899"}}).toFormat(format).toBuffer();
+    const decoded = await decodeImage(bytes);
+    assert.equal(decoded.mimeType,format==="jpeg"?"image/jpeg":"image/"+format);
+    assert.equal(decoded.width,3); assert.equal(decoded.height,2);
+  }
+  const jpeg = await sharp({create:{width:2,height:2,channels:3,background:"#ff0000"}}).jpeg().toBuffer();
+  const padded = Buffer.concat([jpeg,Buffer.alloc(5_000_000-jpeg.length)]);
+  assert.equal((await decodeImage(padded)).byteSize,5_000_000);
+  await assert.rejects(decodeImage(Buffer.alloc(5_000_001)),denied(413));
+  await assert.rejects(decodeImage(Buffer.from("GIF89a-corrupt")),denied(422));
+  await assert.rejects(decodeImage(Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'/>")),denied(422));
+  await assert.rejects(decodeImage(jpeg.subarray(0,40)),denied(422));
+});
+
+async function imageFixture(email: string) {
+  time=Date.now(); imageTime=time;
+  const user=await recoveryUser(email), session=await service.login(user.email,password);
+  const property=await new PropertyService(db).create(session.user,session.token,{});
+  const bytes=await sharp({create:{width:4,height:3,channels:3,background:"#88aabb"}}).png().toBuffer();
+  return {user,session,property,bytes};
+}
+async function readyImage(fixture:Awaited<ReturnType<typeof imageFixture>>) {
+  const {session,property,bytes}=fixture;
+  const authorization=await images.authorize(session.user,session.token,property.id,{fileName:"front.png",byteSize:bytes.length,mimeType:"image/png"});
+  await images.upload(session.user,session.token,property.id,authorization.assetId,authorization.parameters.uploadAuthorization,bytes,"image/png");
+  await images.verify(session.user,session.token,property.id,authorization.assetId);
+  return authorization.assetId;
+}
+const galleryItem=(assetId:string,isCover=false)=>({assetId,caption:"Front elevation of the property",altText:"Exterior showing the entrance and windows",isCover});
+
+test("upload capabilities enforce role, ownership, expiry, one use, actual MIME and provider identity", async () => {
+  const fixture=await imageFixture("image-owner@example.test"), {session,property,bytes}=fixture;
+  const headers={Authorization:`Bearer ${session.token}`};
+  const intent=await apiFetch(`/properties/${property.id}/uploads`,{method:"POST",headers,body:JSON.stringify({fileName:"front.png",byteSize:bytes.length,mimeType:"image/png"})});
+  assert.equal(intent.status,201);
+  const authorization=(await intent.json()).data;
+  assert.equal(Date.parse(authorization.expiresAt)-imageTime,600000);
+  const path=authorization.uploadUrl.replace(/^\/api\/v1/,"");
+  assert.equal((await apiFetch(path,{method:"PUT",headers:{...headers,"Content-Type":"image/png","Content-Encoding":"gzip","X-Upload-Authorization":authorization.parameters.uploadAuthorization},body:new Uint8Array(bytes)})).status,415);
+  assert.equal((await apiFetch(`/properties/${property.id}/uploads`,{method:"POST",body:"{}"})).status,401);
+  assert.equal((await apiFetch(path,{method:"PUT",headers:{...headers,"Content-Type":"image/png","X-Upload-Authorization":"wrong"},body:new Uint8Array(bytes)})).status,403);
+  const upload=await apiFetch(path,{method:"PUT",headers:{...headers,"Content-Type":"image/png","X-Upload-Authorization":authorization.parameters.uploadAuthorization},body:new Uint8Array(bytes)});
+  assert.equal(upload.status,204);
+  assert.equal((await apiFetch(path,{method:"PUT",headers:{...headers,"Content-Type":"image/png","X-Upload-Authorization":authorization.parameters.uploadAuthorization},body:new Uint8Array(5_000_001)})).status,413);
+  assert.equal((await apiFetch(path,{method:"PUT",headers:{...headers,"Content-Type":"image/png","X-Upload-Authorization":authorization.parameters.uploadAuthorization},body:new Uint8Array(bytes)})).status,409);
+  const verification=await apiFetch(`/properties/${property.id}/uploads/${authorization.assetId}/verification`,{method:"POST",headers,body:"{}"});
+  assert.equal(verification.status,200); assert.equal((await verification.json()).data.state,"READY");
+  assert.equal((await images.verify(session.user,session.token,property.id,authorization.assetId)).state,"READY");
+  const other=await imageFixture("image-outsider@example.test");
+  await assert.rejects(images.verify(other.session.user,other.session.token,property.id,authorization.assetId),denied(404));
+  await assert.rejects(images.verify(session.user,session.token,other.property.id,authorization.assetId),denied(404));
+  const expires=await images.authorize(session.user,session.token,property.id,{fileName:"expired.png",byteSize:bytes.length,mimeType:"image/png"});
+  imageTime+=600000;
+  await assert.rejects(images.upload(session.user,session.token,property.id,expires.assetId,expires.parameters.uploadAuthorization,bytes,"image/png"),denied(409));
+  imageTime=Date.now();
+  const spoof=await images.authorize(session.user,session.token,property.id,{fileName:"spoof.jpg",byteSize:bytes.length,mimeType:"image/jpeg"});
+  await assert.rejects(images.upload(session.user,session.token,property.id,spoof.assetId,spoof.parameters.uploadAuthorization,bytes,"image/jpeg"),denied(422));
+  const invalid=await images.authorize(session.user,session.token,property.id,{fileName:"metadata.png",byteSize:bytes.length,mimeType:"image/png"});
+  await images.upload(session.user,session.token,property.id,invalid.assetId,invalid.parameters.uploadAuthorization,bytes,"image/png");
+  cloudinary.overrides={public_id:"foreign-asset"};
+  try {await assert.rejects(images.verify(session.user,session.token,property.id,invalid.assetId),denied(422));} finally {cloudinary.overrides={};}
+  assert.equal((await db.cloudinaryAsset.findUniqueOrThrow({where:{id:invalid.assetId}})).lifecycle,"DELETE_PENDING");
+});
+
+test("Cloudinary HTTP adapter signs restricted fields, validates provider URLs and handles absent deletion using mocked fetch", async () => {
+  const originalFetch=globalThis.fetch;
+  const saved={CLOUDINARY_CLOUD_NAME:process.env.CLOUDINARY_CLOUD_NAME,CLOUDINARY_API_KEY:process.env.CLOUDINARY_API_KEY,CLOUDINARY_API_SECRET:process.env.CLOUDINARY_API_SECRET};
+  const bytes=await sharp({create:{width:2,height:2,channels:3,background:"#334455"}}).png().toBuffer();
+  const publicId="properties/test-property/test-asset";
+  let badUrl=false;
+  try{
+    process.env.CLOUDINARY_CLOUD_NAME="mock-cloud";process.env.CLOUDINARY_API_KEY="mock-key";process.env.CLOUDINARY_API_SECRET="mock-secret";
+    globalThis.fetch=async(url,init)=>{
+      const address=String(url);
+      assert.equal(init?.redirect,"error");assert(init?.signal);
+      if(address.endsWith("/image/upload")){
+        assert(init?.body instanceof FormData);
+        const form=init.body;
+        assert.equal(form.get("public_id"),publicId);assert.equal(form.get("overwrite"),"false");assert.equal(form.get("asset_folder"),"properties");
+        assert.equal(form.get("allowed_formats"),"jpg,png,webp");
+        const fields=["allowed_formats","asset_folder","overwrite","public_id","timestamp"].map(key=>key+"="+form.get(key)).join("&");
+        assert.equal(form.get("signature"),createHash("sha256").update(fields+"mock-secret").digest("hex"));
+        return Response.json({});
+      }
+      if(address.includes("/resources/image/upload/")){
+        assert.equal(new Headers(init?.headers).get("Authorization"),"Basic "+Buffer.from("mock-key:mock-secret").toString("base64"));
+        return Response.json({public_id:publicId,resource_type:"image",type:"upload",format:"png",width:2,height:2,bytes:bytes.length,version:1,created_at:new Date().toISOString(),
+          secure_url:badUrl?"https://evil.test/image.png":`https://res.cloudinary.com/mock-cloud/image/upload/v1/${publicId}.png`});
+      }
+      if(address.startsWith("https://res.cloudinary.com/mock-cloud/"))return new Response(new Uint8Array(bytes));
+      if(address.endsWith("/image/destroy"))return Response.json({result:"not found"});
+      throw new Error("Unexpected provider URL");
+    };
+    const provider=new CloudinaryHttpProvider();
+    await provider.upload(publicId,bytes);
+    assert.deepEqual((await provider.inspect(publicId)).bytes,bytes);
+    badUrl=true;await assert.rejects(provider.inspect(publicId),denied(422));
+    await provider.destroy(publicId);
+  }finally{globalThis.fetch=originalFetch;for(const[name,value]of Object.entries(saved)){if(value===undefined)delete process.env[name];else process.env[name]=value;}}
+});
+
+test("gallery attachment, cover and reorder are atomic; removal persists retryable cleanup and neutral duplication", async () => {
+  const fixture=await imageFixture("gallery-owner@example.test"), {session,property}=fixture;
+  const first=await readyImage(fixture), second=await readyImage(fixture), third=await readyImage(fixture);
+  await assert.rejects(images.gallery(session.user,session.token,property.id,{gallery:[galleryItem(first)]},property.etag),denied(422));
+  let result=await images.gallery(session.user,session.token,property.id,{gallery:[galleryItem(first,true),galleryItem(second),galleryItem(third)]},property.etag);
+  assert.equal(result.gallery.length,3); assert(!result.missingRequirements.some(field=>field.path==="gallery"));
+  const imageId=result.gallery[0].id;
+  const outcomes=await Promise.allSettled([
+    images.gallery(session.user,session.token,property.id,{gallery:[galleryItem(second,true),galleryItem(first),galleryItem(third)]},result.etag),
+    images.gallery(session.user,session.token,property.id,{gallery:[galleryItem(first,true)]},result.etag),
+  ]);
+  assert.equal(outcomes.filter(item=>item.status==="fulfilled").length,1);
+  result=await new PropertyService(db).read(session.user,session.token,property.id);
+  assert.equal(result.gallery.filter(image=>image.isCover).length,1);
+  assert.equal(result.gallery.find(image=>image.assetId===first)!.id,imageId);
+  const copy=await new PropertyService(db).duplicate(session.user,session.token,property.id);
+  assert.equal(copy.gallery.length,0);
+  const removed=await images.gallery(session.user,session.token,property.id,{gallery:[]},result.etag);
+  assert.equal(removed.gallery.length,0);
+  cloudinary.failDelete=true;
+  try {assert((await images.cleanup()).failed>0);} finally {cloudinary.failDelete=false;}
+  assert.equal((await db.cloudinaryAsset.findUniqueOrThrow({where:{id:first}})).lifecycle,"DELETE_PENDING");
+  imageTime+=300000;
+  assert((await images.cleanup()).deleted>0);
+  assert.equal((await db.cloudinaryAsset.findUniqueOrThrow({where:{id:first}})).lifecycle,"DELETED");
+  await assert.rejects(images.verify(session.user,session.token,property.id,first),denied(409));
+});
+
+test("abandoned uploaded and unuploaded intents are cleaned safely, with late-upload tombstone reconciliation", async () => {
+  const fixture=await imageFixture("abandoned-owner@example.test"),{session,property,bytes}=fixture;
+  const unused=await images.authorize(session.user,session.token,property.id,{fileName:"unused.png",byteSize:bytes.length,mimeType:"image/png"});
+  const ready=await readyImage(fixture);
+  imageTime+=86400_000+1;
+  const result=await images.cleanup();
+  assert(result.deleted>=2);
+  for(const id of [unused.assetId,ready])assert.equal((await db.cloudinaryAsset.findUniqueOrThrow({where:{id}})).lifecycle,"DELETED");
+  const row=await db.cloudinaryAsset.findUniqueOrThrow({where:{id:unused.assetId}});
+  cloudinary.assets.set(row.cloudinaryPublicId,bytes);
+  imageTime+=86400_000+1;
+  await images.cleanup();
+  assert(!cloudinary.assets.has(row.cloudinaryPublicId));
+});
+
+test("gallery max 15, unique assets/cover and cleanup-versus-attachment are concurrency safe", async () => {
+  const fixture=await imageFixture("gallery-limit@example.test"),{session,property,bytes}=fixture;
+  const ids:string[]=[];
+  for(let index=0;index<15;index++)ids.push(await readyImage(fixture));
+  await assert.rejects(images.authorize(session.user,session.token,property.id,{fileName:"extra.png",byteSize:bytes.length,mimeType:"image/png"}),denied(409));
+  await assert.rejects(images.gallery(session.user,session.token,property.id,{gallery:[...ids,ids[0]].map((id,index)=>galleryItem(id,index===0))},property.etag),denied(422));
+  await assert.rejects(images.gallery(session.user,session.token,property.id,{gallery:[galleryItem(ids[0],true),galleryItem(ids[0])]},property.etag),denied(422));
+  const result=await images.gallery(session.user,session.token,property.id,{gallery:ids.map((id,index)=>galleryItem(id,index===0))},property.etag);
+  assert.equal(result.gallery.length,15);
+  await db.cloudinaryAsset.updateMany({where:{id:{in:ids}},data:{deleteAfter:new Date(imageTime-1)}});
+  await Promise.all([images.cleanup(),images.gallery(session.user,session.token,property.id,{gallery:ids.map((id,index)=>galleryItem(id,index===1))},result.etag)]);
+  assert.equal(await db.propertyImage.count({where:{propertyId:property.id}}),15);
+  assert.equal(await db.cloudinaryAsset.count({where:{id:{in:ids},lifecycle:"READY"}}),15);
+  await assert.rejects(db.propertyImage.update({where:{id:result.gallery[0].id},data:{isCover:true}}));
+});
+
+test("unattached asset cleanup racing attachment cannot delete an attached image", async () => {
+  const fixture=await imageFixture("cleanup-attach-race@example.test"),{session,property}=fixture;
+  const assetId=await readyImage(fixture);
+  await db.cloudinaryAsset.update({where:{id:assetId},data:{createdAt:new Date(imageTime-86400_000),authorizedUntil:new Date(imageTime-86400_000+600000),deleteAfter:new Date(imageTime-1)}});
+  const outcomes=await Promise.allSettled([images.cleanup(),images.gallery(session.user,session.token,property.id,{gallery:[galleryItem(assetId,true)]},property.etag)]);
+  assert.equal(outcomes[0].status,"fulfilled");
+  const attached=await db.propertyImage.findUnique({where:{assetId}});
+  const asset=await db.cloudinaryAsset.findUniqueOrThrow({where:{id:assetId}});
+  if(attached)assert.equal(asset.lifecycle,"READY");
+  else assert(["DELETED","DELETE_PENDING"].includes(asset.lifecycle));
+});
+
+test("verification completing after cleanup cannot resurrect a retired asset", async () => {
+  const fixture=await imageFixture("cleanup-verify-race@example.test"),{session,property,bytes}=fixture;
+  const intent=await images.authorize(session.user,session.token,property.id,{fileName:"front.png",byteSize:bytes.length,mimeType:"image/png"});
+  await images.upload(session.user,session.token,property.id,intent.assetId,intent.parameters.uploadAuthorization,bytes,"image/png");
+  let release!:()=>void,entered!:()=>void;
+  const gate=new Promise<void>(resolve=>{release=resolve;});
+  const waiting=new Promise<void>(resolve=>{entered=resolve;});
+  const originalInspect=cloudinary.inspect.bind(cloudinary);
+  cloudinary.inspect=async publicId=>{const result=await originalInspect(publicId);entered();await gate;return result;};
+  const attempt=images.verify(session.user,session.token,property.id,intent.assetId);
+  // Attach the rejection handler immediately while the provider call is deliberately pending.
+  const rejected=assert.rejects(attempt,denied(409));
+  try{
+    await waiting;
+    await db.cloudinaryAsset.update({where:{id:intent.assetId},data:{createdAt:new Date(imageTime-86400_000),authorizedUntil:new Date(imageTime-86400_000+600000),deleteAfter:new Date(imageTime-1)}});
+    await images.cleanup();
+    release();await rejected;
+    assert.equal((await db.cloudinaryAsset.findUniqueOrThrow({where:{id:intent.assetId}})).lifecycle,"DELETED");
+  }finally{release();cloudinary.inspect=originalInspect;}
+});
+
 test("real Next BFF sets secure host-only cookie, strips secrets, enforces CSRF and forwards only the cookie credential", { timeout: 40_000 }, async () => {
   // Restore wall clock before issuing browser cookies after expiry tests used a fake clock.
   time = Date.now();
@@ -721,6 +925,22 @@ test("real Next BFF sets secure host-only cookie, strips secrets, enforces CSRF 
   assert.equal(propertyList.status,200); assert.equal((await propertyList.json()).pagination.total,2);
   assert.equal((await fetch(bff+"/api/v1/agent/properties?ownerId="+adminId,{headers:propertyHeaders})).status,400);
   assert.equal((await fetch(bff+"/api/v1/agent/properties",{headers:{Authorization:`Bearer ${propertyCookie}`}})).status,401);
+  const imageBytes=await sharp({create:{width:2,height:2,channels:3,background:"#112233"}}).png().toBuffer();
+  const imageAuthorize=await fetch(bff+`/api/v1/properties/${propertyDraft.id}/uploads`,{method:"POST",headers:propertyHeaders,
+    body:JSON.stringify({fileName:"front.png",byteSize:imageBytes.length,mimeType:"image/png"})});
+  assert.equal(imageAuthorize.status,201);
+  const imageIntent=(await imageAuthorize.json()).data;
+  assert.equal((await fetch(bff+imageIntent.uploadUrl,{method:"PUT",headers:{...propertyHeaders,"Content-Type":"image/png","X-Upload-Authorization":imageIntent.parameters.uploadAuthorization},body:new Uint8Array(imageBytes)})).status,204);
+  const imageVerify=await fetch(bff+`/api/v1/properties/${propertyDraft.id}/uploads/${imageIntent.assetId}/verification`,{method:"POST",headers:propertyHeaders,body:"{}"});
+  assert.equal(imageVerify.status,200);
+  const latestProperty=(await(await fetch(bff+"/api/v1/agent/properties/"+propertyDraft.id,{headers:propertyHeaders})).json()).data;
+  const imageGallery=await fetch(bff+`/api/v1/properties/${propertyDraft.id}/images`,{method:"PUT",headers:{...propertyHeaders,"If-Match":latestProperty.etag},
+    body:JSON.stringify({gallery:[galleryItem(imageIntent.assetId,true)]})});
+  assert.equal(imageGallery.status,200);
+  const galleryResult=(await imageGallery.json()).data;
+  assert.equal(galleryResult.gallery.length,1);assert.equal(galleryResult.gallery[0].isCover,true);
+  assert.equal((await(await fetch(bff+"/api/v1/agent/properties/"+propertyDraft.id,{headers:propertyHeaders})).json()).data.gallery.length,1);
+  assert.equal((await fetch(bff+`/api/v1/properties/${propertyDraft.id}/uploads`,{method:"POST",headers:{...propertyHeaders,Origin:"https://evil.test"},body:"{}"})).status,403);
   assert.equal((await fetch(bff+"/api/v1/auth/sign-out",{method:"POST",headers:{...headers,Cookie:sessionCookie},body:"{}"})).status,204);
   const replay = await fetch(bff+"/api/v1/me", {headers:{Cookie:sessionCookie}});
   assert.equal(replay.status,401);

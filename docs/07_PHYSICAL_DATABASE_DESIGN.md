@@ -85,6 +85,8 @@ Clear irrelevant fields on type change; Land has no residential/parking/furnishi
 
 ### 2.6 PropertyImage
 
+**28 November implementation:** Additive migration `20261128030000_property_images` implements PropertyImage and CloudinaryAsset, restrictive asset/uploader FKs, property-scoped relations, unique image positions (1..15), partial cover uniqueness and READY metadata constraints. Assets additionally record authorizedUntil, declarations, uploadStartedAt/uploadedAt and contentHash to enforce the bounded upload gateway. Applied migration history is preserved. DOC-08 Section 1.9 records verification and cleanup behavior.
+
 id UUID; propertyId UUID CASCADE; assetId UUID unique RESTRICT; position positive integer; isCover boolean; caption/altText non-empty text; createdAt/updatedAt. Unique(propertyId, position); partial unique propertyId where isCover enforces at most one. Service requires exactly one for non-empty gallery and submission minimum. Photos are not decorative; descriptive caption can default meaningful editable alt.
 
 Each asset attaches once, to one property; no duplicate/revision sharing. Presentation belongs to PropertyImage; verified provider identity/metadata to CloudinaryAsset. All attachment/reorder/cover/removal mutations lock Property then affected Assets in stable order and validate before commit. Swaps use a temporary position range or deferred position uniqueness. Ownership is immutable; no cross-listing FK move.

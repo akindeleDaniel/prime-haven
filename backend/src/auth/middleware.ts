@@ -21,7 +21,11 @@ export function trustedTransport(config: Pick<Environment, "appOrigin" | "bffSha
     if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new ApiError(403, "FORBIDDEN", "Trusted server transport is required.");
     if (request.method !== "GET" && request.method !== "HEAD") {
       if (request.get("Origin") !== config.appOrigin || request.get("X-Prime-Haven-CSRF") !== "1") throw new ApiError(403, "CSRF_REJECTED", "Request origin could not be verified.");
-      if (!request.is("application/json")) throw new ApiError(415, "UNSUPPORTED_MEDIA_TYPE", "Use application/json.");
+      const imageUpload = request.method === "PUT" && /^\/properties\/[0-9a-f-]{36}\/uploads\/[0-9a-f-]{36}\/content$/i.test(request.path);
+      if (imageUpload && request.get("Content-Encoding") && request.get("Content-Encoding") !== "identity") throw new ApiError(415, "UNSUPPORTED_MEDIA_TYPE", "Compressed image requests are not supported.");
+      if (imageUpload ? !["image/jpeg", "image/png", "image/webp"].some(type => request.is(type)) : !request.is("application/json")) {
+        throw new ApiError(415, "UNSUPPORTED_MEDIA_TYPE", imageUpload ? "Use JPEG, PNG or WebP image bytes." : "Use application/json.");
+      }
     }
     next();
   };

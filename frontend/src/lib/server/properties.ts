@@ -8,11 +8,16 @@ const contentKeys = ["title","description","purpose","propertyType","priceNaira"
 const scalarKeys = ["id","ownerId","reference","version","etag","status","slug","publishedAt","submittedAt","archivedAt","rejectionReason","verified","verifiedById","verifiedAt","featured","featuredAt","viewCount","createdAt","updatedAt"];
 
 function object(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
-function project(value: unknown) {
+export function project(value: unknown) {
   if (!object(value) || typeof value.id !== "string" || !uuid.test(value.id) || value.status !== "DRAFT" || !object(value.content) ||
     !Array.isArray(value.amenityIds) || !value.amenityIds.every(id => typeof id === "string" && uuid.test(id)) ||
     !Array.isArray(value.amenities) || !Array.isArray(value.missingRequirements) ||
-    !Array.isArray(value.gallery) || value.gallery.length !== 0) return null;
+    !Array.isArray(value.gallery) || value.gallery.length > 15) return null;
+  const gallery = value.gallery.map(item => object(item) &&
+    ["id","assetId","url","caption","altText"].every(key => typeof item[key] === "string") &&
+    ["width","height","position"].every(key => typeof item[key] === "number") && typeof item.isCover === "boolean"
+    ? Object.fromEntries(["id","assetId","url","width","height","position","isCover","caption","altText"].map(key => [key,item[key]])) : null);
+  if (gallery.includes(null)) return null;
   const scalars = Object.fromEntries(scalarKeys.map(key => [key, value[key]]));
   if (Object.values(scalars).some(item => item !== null && !["string","number","boolean"].includes(typeof item))) return null;
   const content = Object.fromEntries(contentKeys.map(key => [key, (value.content as Record<string, unknown>)[key]]));
@@ -22,7 +27,7 @@ function project(value: unknown) {
   const missingRequirements = value.missingRequirements.map(item => object(item) && ["path","code","message"].every(key => typeof item[key] === "string")
     ? { path: item.path, code: item.code, message: item.message } : null);
   if (amenities.includes(null) || missingRequirements.includes(null)) return null;
-  return { ...scalars, content, gallery: [], amenityIds: value.amenityIds, amenities, missingRequirements };
+  return { ...scalars, content, gallery, amenityIds: value.amenityIds, amenities, missingRequirements };
 }
 
 export async function handleProperties(request: NextRequest, operation: Operation, id?: string) {

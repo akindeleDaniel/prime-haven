@@ -10,6 +10,8 @@
 
 ## 1. Scope and model boundaries
 
+**28 November image implementation:** Draft gallery and scoped Cloudinary asset lifecycle now implement upload authorization, verification, attachment/order/cover/caption/alt changes and bounded recoverable cleanup. No listing submission/moderation or frontend UI is added. DOC-08 Section 1.9 records the server-mediated fallback and DOC-05 its verification evidence.
+
 **28 November property implementation:** The first listing slice adds Property owner/verifier relationships, Amenity/PropertyAmenity and focused property audit events for manual Draft creation/edit/duplication. Other lifecycle, image, inquiry and public-discovery behavior remains designed. DOC-08 Section 1.8 records the bounded implementation and DOC-05 its evidence.
 
 This logical model explains entities, relationships and business behaviour. DOC-07 translates it into PostgreSQL/Prisma structures. FRS defines product behaviour; technical metadata below supports that behaviour and is not a new feature. Current data is stored once on Property; there is no separate revision/history model. Browser favourites need no database table. Approximate views need no visitor identity or server session-marker records.

@@ -64,6 +64,7 @@ model User {
   subjectAuditEvents  AuditLog[]    @relation("AuditAffectedUser")
   properties          Property[]   @relation("PropertyOwner")
   verifiedProperties  Property[]   @relation("PropertyVerifier")
+  uploadedAssets      CloudinaryAsset[]
 }
 
 model PasswordResetToken {
@@ -240,8 +241,63 @@ model Property {
   verifier          User?           @relation("PropertyVerifier", fields: [verifiedById], references: [id], onDelete: Restrict)
   amenities         PropertyAmenity[]
   auditEvents       AuditLog[]
+  images            PropertyImage[]
+  assets            CloudinaryAsset[]
 
   @@index([ownerId, status, updatedAt, id])
+}
+
+enum AssetState {
+  UPLOADING
+  READY
+  DELETE_PENDING
+  DELETED
+}
+
+model CloudinaryAsset {
+  id                 String     @id @default(uuid()) @db.Uuid
+  propertyId         String?    @db.Uuid
+  uploadedById       String     @db.Uuid
+  cloudinaryPublicId String     @unique
+  lifecycle          AssetState @default(UPLOADING)
+  declaredMimeType   String
+  declaredByteSize   Int
+  authorizedUntil    DateTime   @db.Timestamptz(3)
+  uploadStartedAt    DateTime?  @db.Timestamptz(3)
+  uploadedAt         DateTime?  @db.Timestamptz(3)
+  contentHash        String?
+  deliveryUrl        String?
+  mimeType           String?
+  format             String?
+  byteSize           Int?
+  width              Int?
+  height             Int?
+  verifiedAt         DateTime?  @db.Timestamptz(3)
+  deleteAfter        DateTime?  @db.Timestamptz(3)
+  deletedAt          DateTime?  @db.Timestamptz(3)
+  lastErrorCode      String?
+  createdAt          DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime   @updatedAt @db.Timestamptz(3)
+  property           Property?  @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  uploadedBy         User       @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  image              PropertyImage?
+  @@index([lifecycle, deleteAfter])
+  @@index([propertyId])
+}
+
+model PropertyImage {
+  id         String    @id @default(uuid()) @db.Uuid
+  propertyId String    @db.Uuid
+  assetId    String    @unique @db.Uuid
+  position   Int
+  isCover    Boolean
+  caption    String
+  altText    String
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @db.Timestamptz(3)
+  property   Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  asset      CloudinaryAsset @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  @@unique([propertyId, position])
 }
 
 model Amenity {

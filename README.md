@@ -56,6 +56,20 @@ See [the implemented authentication transport contract](docs/08_API_CONTRACTS.md
 
 ## Verification
 
+Property image flow (Drafts only): POST `/api/v1/properties/{id}/uploads` with
+`{fileName,byteSize,mimeType}`, PUT raw image bytes to the returned uploadUrl using the returned
+parameters.uploadAuthorization as X-Upload-Authorization, then POST an empty JSON object to
+`/api/v1/properties/{id}/uploads/{assetId}/verification`. All calls use the existing session and CSRF rules.
+PUT `/api/v1/properties/{id}/images` with `{gallery:[{assetId,caption,altText?,isCover}]}` and current If-Match
+to attach/reorder/select cover/remove; the full array replaces the gallery atomically.
+
+Cloudinary cloud name, API key and secret belong only in backend environment variables. The bounded byte
+gateway enforces the ten-minute capability and 5,000,000-byte limit before the provider call. Automated
+tests mock provider operations and HTTP; never enable real uploads/deletions without owner authorization.
+`npm run images:cleanup` from backend only inventories due orphan/removal records. After explicit authorization,
+`npm run images:cleanup -- --execute` retries one bounded deletion batch on the confirmed local DB.
+Failures remain retryable; tombstones retain late-arrival reconciliation. No scheduler/worker is installed.
+
 The first property slice supports `GET/POST /api/v1/agent/properties`,
 `GET/PATCH /api/v1/agent/properties/{id}` and `POST /api/v1/agent/properties/{id}/duplicates`.
 Use an active, activated Agent session, the same CSRF headers on writes, and the returned ETag as If-Match
