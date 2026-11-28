@@ -33,6 +33,10 @@ enum AuditAction {
   PROPERTY_CREATED
   PROPERTY_EDITED
   PROPERTY_DUPLICATED
+  PROPERTY_SUBMITTED
+  PROPERTY_APPROVED
+  PROPERTY_REJECTED
+  PROPERTY_STATUS_CHANGED
 }
 
 enum AuditSubjectType {
@@ -245,6 +249,7 @@ model Property {
   assets            CloudinaryAsset[]
 
   @@index([ownerId, status, updatedAt, id])
+  @@index([status, submittedAt, id])
 }
 
 enum AssetState {

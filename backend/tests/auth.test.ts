@@ -76,7 +76,7 @@ before(async () => {
   namespaceCreated = true;
   url.searchParams.set("schema", schema);
   db = createDatabaseClient(url.toString());
-  for (const migration of ["20261127010000_auth_foundation", "20261127020000_agent_invitations", "20261128010000_password_recovery", "20261128020000_property_drafts", "20261128030000_property_images"]) {
+  for (const migration of ["20261127010000_auth_foundation", "20261127020000_agent_invitations", "20261128010000_password_recovery", "20261128020000_property_drafts", "20261128030000_property_images", "20261128040000_property_moderation"]) {
     const sql = await readFile(`prisma/migrations/${migration}/migration.sql`, "utf8");
     for (const statement of sql.split(";").filter(part => part.trim())) await db.$executeRawUnsafe(statement);
   }
@@ -941,8 +941,225 @@ test("real Next BFF sets secure host-only cookie, strips secrets, enforces CSRF 
   assert.equal(galleryResult.gallery.length,1);assert.equal(galleryResult.gallery[0].isCover,true);
   assert.equal((await(await fetch(bff+"/api/v1/agent/properties/"+propertyDraft.id,{headers:propertyHeaders})).json()).data.gallery.length,1);
   assert.equal((await fetch(bff+`/api/v1/properties/${propertyDraft.id}/uploads`,{method:"POST",headers:{...propertyHeaders,Origin:"https://evil.test"},body:"{}"})).status,403);
+  const bffSubmissionFixture = await moderationFixture("bff-submission@example.test");
+  const bffLogin = await fetch(bff+"/api/v1/auth/sign-in", { method:"POST",headers,body:JSON.stringify({email:bffSubmissionFixture.user.email,password}) });
+  assert.equal(bffLogin.status,200);
+  const submissionHeaders = {...headers,Cookie:bffLogin.headers.get("Set-Cookie")!.split(";")[0],"If-Match":bffSubmissionFixture.property.etag};
+  const submitUrl=bff+"/api/v1/agent/properties/"+bffSubmissionFixture.property.id+"/submissions";
+  assert.equal((await fetch(submitUrl,{method:"POST",headers:{...submissionHeaders,Origin:"https://evil.test"},body:JSON.stringify(bffSubmissionFixture.submission)})).status,403);
+  const submitted=await fetch(submitUrl,{method:"POST",headers:submissionHeaders,body:JSON.stringify(bffSubmissionFixture.submission)});
+  assert.equal(submitted.status,200);
+  const pending=(await submitted.json()).data; assert.equal(pending.status,"PENDING_REVIEW");
+  assert.equal((await fetch(bff+"/api/v1/admin/properties",{headers:submissionHeaders})).status,403);
+  const moderationHeaders={...headers,Cookie:sessionCookie};
+  const queueResponse=await fetch(bff+"/api/v1/admin/properties?status=PENDING_REVIEW&ownerId="+bffSubmissionFixture.user.id,{headers:moderationHeaders});
+  assert.equal(queueResponse.status,200); assert.equal((await queueResponse.json()).data[0].id,pending.id);
+  const inspect=await fetch(bff+"/api/v1/admin/properties/"+pending.id,{headers:moderationHeaders});
+  assert.equal(inspect.status,200); assert.equal(inspect.headers.get("ETag"),pending.etag);
+  const statusUrl=bff+"/api/v1/admin/properties/"+pending.id+"/status";
+  assert.equal((await fetch(statusUrl,{method:"PATCH",headers:{...moderationHeaders,"If-Match":bffSubmissionFixture.property.etag},body:JSON.stringify({status:"PUBLISHED"})})).status,412);
+  const publication=await fetch(statusUrl,{method:"PATCH",headers:{...moderationHeaders,"If-Match":pending.etag},body:JSON.stringify({status:"PUBLISHED"})});
+  assert.equal(publication.status,200); const published=(await publication.json()).data; assert(published.slug);assert(published.publishedAt);
+  assert.match(publication.headers.get("Cache-Control")!,/no-store/);assert.equal(publication.headers.get("X-Session-Token"),null);
+  const underOffer=await fetch(bff+"/api/v1/agent/properties/"+pending.id+"/status",{method:"PATCH",headers:{...submissionHeaders,"If-Match":published.etag},body:JSON.stringify({status:"UNDER_OFFER"})});
+  assert.equal(underOffer.status,200);assert.equal((await underOffer.json()).data.status,"UNDER_OFFER");
   assert.equal((await fetch(bff+"/api/v1/auth/sign-out",{method:"POST",headers:{...headers,Cookie:sessionCookie},body:"{}"})).status,204);
   const replay = await fetch(bff+"/api/v1/me", {headers:{Cookie:sessionCookie}});
   assert.equal(replay.status,401);
   assert.match(replay.headers.get("Set-Cookie")!,/Max-Age=0/);
+});
+
+const completeHouse = {
+  title: "Fictional family home in Lagos", description: "A fictional test property with bright rooms and a sheltered entrance for local workflow verification.",
+  purpose: "FOR_SALE" as const, propertyType: "HOUSE" as const, priceNaira: "25000000", negotiable: false,
+  state: "Lagos" as const, city: "Ikeja", neighbourhood: "Test neighbourhood", exactAddress: "12 Fictional Test Street", showExactAddress: false,
+  bedrooms: 3, bathrooms: 2, toilets: 3, furnishing: "UNFURNISHED" as const, parkingSpaces: 1,
+};
+async function moderationFixture(email: string) {
+  const fixture = await imageFixture(email);
+  const gallery = [];
+  for (let index = 0; index < 3; index++) gallery.push(galleryItem(await readyImage(fixture), index === 0));
+  return { ...fixture, submission: { content: completeHouse, amenityIds: [] as string[], gallery } };
+}
+
+test("submission, oldest-first moderation, rejection and first approval preserve private current content", async () => {
+  const f = await moderationFixture("moderation-owner@example.test"), properties = new PropertyService(db);
+  const admin = await service.login("admin@example.test", password);
+  let row = await properties.submit(f.session.user, f.session.token, f.property.id, f.submission, f.property.etag);
+  assert.equal(row.status, "PENDING_REVIEW"); assert(row.submittedAt); assert.equal(row.slug, null); assert.equal(row.publishedAt, null);
+  assert.equal(row.gallery.length, 3); assert.equal(row.content.showExactAddress, false);
+  await assert.rejects(properties.edit(f.session.user, f.session.token, row.id, { content: { title: "Pending overwrite attempt" } }, row.etag), denied(409));
+  const queue = await properties.adminList(admin.user, admin.token, new URLSearchParams({ status: "PENDING_REVIEW", ownerId: f.user.id }));
+  assert.equal(queue.pagination.total, 1); assert.equal(queue.data[0].id, row.id);
+  assert.equal((await properties.adminRead(admin.user, admin.token, row.id)).content.exactAddress, completeHouse.exactAddress);
+  for (const reason of [undefined, "", "   ", "x".repeat(1001)]) {
+    await assert.rejects(properties.changeStatus(admin.user, admin.token, row.id, { status: "DRAFT", ...(reason === undefined ? {} : { reason }) }, row.etag, true), denied(422));
+  }
+  const reason = "Please clarify the supplied property information.";
+  const rejected = await properties.changeStatus(admin.user, admin.token, row.id, { status: "DRAFT", reason }, row.etag, true);
+  assert.equal(rejected.status, "DRAFT"); assert("rejectionReason" in rejected); assert.equal(rejected.rejectionReason, reason);
+  assert.equal((await properties.list(f.session.user, f.session.token, new URLSearchParams({ rejectedOnly: "true" }))).pagination.total, 1);
+  assert("etag" in rejected);
+  row = await properties.submit(f.session.user, f.session.token, row.id, f.submission, rejected.etag);
+  assert.equal(row.rejectionReason, null);
+  const approved = await properties.changeStatus(admin.user, admin.token, row.id, { status: "PUBLISHED" }, row.etag, true);
+  assert("slug" in approved); assert.equal(approved.slug, generatePropertySlug(completeHouse.title, row.reference)); assert(approved.publishedAt);
+  assert.equal(approved.verified, false); assert.equal(approved.featured, false);
+  const audits = await db.auditLog.findMany({ where: { propertyId: row.id } });
+  assert(audits.some(event => event.action === "PROPERTY_SUBMITTED")); assert(audits.some(event => event.action === "PROPERTY_APPROVED"));
+  assert(audits.some(event => event.action === "PROPERTY_REJECTED"));
+  for (const event of audits) for (const privateValue of [reason, completeHouse.exactAddress, completeHouse.title]) assert(!event.summary.includes(privateValue));
+});
+
+test("invalid complete submissions report missing fields and leave stored draft or public content unchanged", async () => {
+  const f = await moderationFixture("submission-validation@example.test"), properties = new PropertyService(db);
+  const admin = await service.login("admin@example.test", password);
+  await assert.rejects(properties.submit(f.session.user, f.session.token, f.property.id, { content: {}, amenityIds: [], gallery: [] }, f.property.etag), error => {
+    assert(error instanceof ApiError); assert.equal(error.status, 422);
+    const paths = error.fields!.map(field => field.path);
+    for (const field of ["title", "description", "purpose", "propertyType", "priceNaira", "negotiable", "state", "city", "neighbourhood", "exactAddress"]) assert(paths.includes("content." + field));
+    assert(paths.includes("gallery")); return true;
+  });
+  for (const content of [
+    { ...completeHouse, bedrooms: null }, { ...completeHouse, purpose: "FOR_RENT", rentPeriod: null },
+    { title: completeHouse.title, description: completeHouse.description, purpose: "FOR_SALE", propertyType: "LAND", priceNaira: "1", negotiable: false, state: "Lagos", city: "Ikeja", neighbourhood: "Test", exactAddress: "Test" },
+    { ...completeHouse, propertyType: "OFFICE", bedrooms: null, bathrooms: null, toilets: null, furnishing: null, floorAreaSqm: null },
+    { ...completeHouse, priceNaira: "0" },
+  ]) await assert.rejects(properties.submit(f.session.user, f.session.token, f.property.id, { ...f.submission, content }, f.property.etag), denied(422));
+  for (const gallery of [f.submission.gallery.slice(0, 2), f.submission.gallery.map(item => ({ ...item, isCover: false })),
+    f.submission.gallery.map(item => ({ ...item, isCover: true })), Array.from({ length: 16 }, () => f.submission.gallery[0]),
+    f.submission.gallery.map(item => ({ ...item, caption: "image" }))])
+    await assert.rejects(properties.submit(f.session.user, f.session.token, f.property.id, { ...f.submission, gallery }, f.property.etag), denied(422));
+  assert.equal((await properties.read(f.session.user, f.session.token, f.property.id)).version, 1);
+  assert.equal(await db.propertyImage.count({ where: { propertyId: f.property.id } }), 0);
+  const pending = await properties.submit(f.session.user, f.session.token, f.property.id, f.submission, f.property.etag);
+  const published = await properties.changeStatus(admin.user, admin.token, pending.id, { status: "PUBLISHED" }, pending.etag, true);
+  assert("etag" in published);
+  await assert.rejects(properties.submit(f.session.user, f.session.token, pending.id, { ...f.submission, content: { ...completeHouse, exactAddress: null } }, published.etag), denied(422));
+  const unchanged = await properties.read(f.session.user, f.session.token, pending.id);
+  assert.equal(unchanged.status, "PUBLISHED"); assert.equal(unchanged.etag, published.etag); assert.equal(unchanged.content.exactAddress, completeHouse.exactAddress);
+});
+
+test("Published and Under Offer edit submissions clear badges atomically and preserve original publication identity", async () => {
+  const f = await moderationFixture("public-edit@example.test"), properties = new PropertyService(db);
+  const admin = await service.login("admin@example.test", password);
+  let row = await properties.submit(f.session.user, f.session.token, f.property.id, f.submission, f.property.etag);
+  await properties.changeStatus(admin.user, admin.token, row.id, { status: "PUBLISHED" }, row.etag, true);
+  row = await properties.read(f.session.user, f.session.token, row.id);
+  const slug = row.slug, date = row.publishedAt!.toISOString();
+  for (const source of ["PUBLISHED", "UNDER_OFFER"] as const) {
+    if (source === "UNDER_OFFER") { await properties.changeStatus(f.session.user, f.session.token, row.id, { status: source }, row.etag); row = await properties.read(f.session.user, f.session.token, row.id); }
+    await db.property.update({ where: { id: row.id }, data: { featured: true, featuredAt: new Date(), verified: true, verifiedById: adminId, verifiedAt: new Date() } });
+    const newAsset = await readyImage(f); // Public candidate uploads do not attach or change the live record.
+    assert.equal((await properties.read(f.session.user, f.session.token, row.id)).gallery.length, 3);
+    await assert.rejects(images.gallery(f.session.user, f.session.token, row.id, { gallery: f.submission.gallery }, row.etag), denied(409));
+    const content = { ...completeHouse, title: "An updated fictional family home", priceNaira: source === "PUBLISHED" ? "27000000" : "29000000" };
+    row = await properties.submit(f.session.user, f.session.token, row.id, { ...f.submission, content, gallery: [galleryItem(newAsset, true), ...f.submission.gallery.slice(1)] }, row.etag);
+    assert.equal(row.status, "PENDING_REVIEW"); assert.equal(row.featured, false); assert.equal(row.featuredAt, null);
+    assert.equal(row.verified, false); assert.equal(row.verifiedAt, null); assert.equal(row.verifiedById, null);
+    assert.equal(row.slug, slug); assert.equal(row.publishedAt!.toISOString(), date);
+    assert.equal((await db.cloudinaryAsset.findUniqueOrThrow({ where: { id: f.submission.gallery[0].assetId } })).lifecycle, "DELETE_PENDING");
+    await properties.changeStatus(admin.user, admin.token, row.id, { status: "PUBLISHED" }, row.etag, true);
+    row = await properties.read(f.session.user, f.session.token, row.id);
+    f.submission.gallery = row.gallery.map(item => galleryItem(item.assetId, item.isCover));
+  }
+  await db.property.update({ where: { id: row.id }, data: { verified: true, verifiedById: adminId, verifiedAt: new Date() } });
+  row = await properties.submit(f.session.user, f.session.token, row.id, { ...f.submission, content: { ...row.content, title: "Title-only nonmaterial revision" } }, row.etag);
+  assert.equal(row.verified, true);
+  await properties.changeStatus(admin.user, admin.token, row.id, { status: "DRAFT", reason: "Clarify the revised content" }, row.etag, true);
+  row = await properties.read(f.session.user, f.session.token, row.id);
+  assert.equal(row.content.title, "Title-only nonmaterial revision");
+  assert.equal(row.slug, slug); assert.equal(row.publishedAt!.toISOString(), date);
+});
+
+test("moderation and submission reject unauthorized, stale, ineligible-owner and competing requests", async () => {
+  const f = await moderationFixture("moderation-security@example.test"), other = await recoveryUser("moderation-other@example.test");
+  const otherSession = await service.login(other.email, password), admin = await service.login("admin@example.test", password), properties = new PropertyService(db);
+  await assert.rejects(properties.submit(otherSession.user, otherSession.token, f.property.id, f.submission, f.property.etag), denied(404));
+  await assert.rejects(properties.submit(admin.user, admin.token, f.property.id, f.submission, f.property.etag), denied(403));
+  await assert.rejects(properties.adminRead(f.session.user, f.session.token, f.property.id), denied(403));
+  await assert.rejects(properties.submit(f.session.user, f.session.token, f.property.id, f.submission), denied(428));
+  const results = await Promise.allSettled([1, 2].map(() => properties.submit(f.session.user, f.session.token, f.property.id, f.submission, f.property.etag)));
+  assert.equal(results.filter(result => result.status === "fulfilled").length, 1);
+  assert(results.some(result => result.status === "rejected" && denied(412)(result.reason)));
+  const row = await properties.read(f.session.user, f.session.token, f.property.id);
+  await db.user.update({ where: { id: f.user.id }, data: { accountStatus: "DEACTIVATED", deactivatedAt: new Date() } });
+  await assert.rejects(properties.changeStatus(admin.user, admin.token, row.id, { status: "PUBLISHED" }, row.etag, true), denied(409));
+  await db.user.update({ where: { id: f.user.id }, data: { accountStatus: "ACTIVE", deactivatedAt: null } });
+  const competing = await Promise.allSettled([
+    properties.changeStatus(admin.user, admin.token, row.id, { status: "PUBLISHED" }, row.etag, true),
+    properties.changeStatus(admin.user, admin.token, row.id, { status: "DRAFT", reason: "Requires clarification" }, row.etag, true),
+  ]);
+  assert.equal(competing.filter(result => result.status === "fulfilled").length, 1);
+  assert(competing.some(result => result.status === "rejected" && denied(412)(result.reason)));
+  assert.equal(await db.auditLog.count({ where: { propertyId: row.id, action: { in: ["PROPERTY_APPROVED", "PROPERTY_REJECTED"] } } }), 1);
+  const h = { Authorization: "Bearer " + f.session.token };
+  assert.equal((await apiFetch("/admin/properties", { headers: h })).status, 403);
+  assert.equal((await apiFetch("/admin/properties/" + row.id + "/status", { method: "PATCH", headers: h, body: JSON.stringify({ status: "PUBLISHED" }) })).status, 403);
+  assert.equal((await apiFetch("/agent/properties/" + row.id + "/submissions", { method: "POST", body: JSON.stringify(f.submission) })).status, 401);
+  assert.equal((await apiFetch("/admin/properties?status=PENDING_REVIEW&status=DRAFT", { headers: { Authorization: "Bearer " + admin.token } })).status, 400);
+});
+
+test("approved status matrix supports withdrawal, Under Offer, close, unpublish and archival without self-approval", async () => {
+  const f = await moderationFixture("status-matrix@example.test"), admin = await service.login("admin@example.test", password), properties = new PropertyService(db);
+  await assert.rejects(properties.changeStatus(f.session.user, f.session.token, f.property.id, { status: "PUBLISHED" }, f.property.etag), denied(409));
+  await assert.rejects(properties.changeStatus(admin.user, admin.token, f.property.id, { status: "PUBLISHED" }, f.property.etag, true), denied(409));
+  let row = await properties.submit(f.session.user, f.session.token, f.property.id, f.submission, f.property.etag);
+  await properties.changeStatus(f.session.user, f.session.token, row.id, { status: "DRAFT" }, row.etag);
+  row = await properties.read(f.session.user, f.session.token, row.id);
+  row = await properties.submit(f.session.user, f.session.token, row.id, f.submission, row.etag);
+  await properties.changeStatus(admin.user, admin.token, row.id, { status: "PUBLISHED" }, row.etag, true);
+  row = await properties.read(f.session.user, f.session.token, row.id);
+  for (const status of ["UNDER_OFFER", "PUBLISHED", "CLOSED"] as const) {
+    await properties.changeStatus(f.session.user, f.session.token, row.id, { status }, row.etag);
+    row = await properties.read(f.session.user, f.session.token, row.id); assert.equal(row.status, status);
+  }
+  await assert.rejects(properties.submit(f.session.user, f.session.token, row.id, f.submission, row.etag), denied(409));
+  const archived = await properties.changeStatus(f.session.user, f.session.token, row.id, { status: "ARCHIVED" }, row.etag);
+  assert.deepEqual(archived, { id: row.id, status: "ARCHIVED" });
+  await assert.rejects(properties.read(f.session.user, f.session.token, row.id), denied(404));
+  row = await properties.adminRead(admin.user, admin.token, row.id);
+  await properties.changeStatus(admin.user, admin.token, row.id, { status: "DRAFT" }, row.etag, true);
+  row = await properties.read(f.session.user, f.session.token, row.id);
+  row = await properties.submit(f.session.user, f.session.token, row.id, f.submission, row.etag);
+  await properties.changeStatus(admin.user, admin.token, row.id, { status: "PUBLISHED" }, row.etag, true);
+  row = await properties.read(f.session.user, f.session.token, row.id);
+  await assert.rejects(properties.changeStatus(admin.user, admin.token, row.id, { status: "DRAFT" }, row.etag, true), denied(422));
+  await properties.changeStatus(admin.user, admin.token, row.id, { status: "DRAFT", reason: "Manual unpublication" }, row.etag, true);
+});
+
+
+test("submission rejects foreign or unverified assets; approval rechecks images and queue uses latest submission ordering", async () => {
+  const f = await moderationFixture("submission-assets@example.test"), foreign = await imageFixture("submission-foreign@example.test");
+  const properties = new PropertyService(db), admin = await service.login("admin@example.test", password);
+  const foreignId = await readyImage(foreign);
+  await assert.rejects(properties.submit(f.session.user, f.session.token, f.property.id, { ...f.submission,
+    gallery: [galleryItem(foreignId, true), ...f.submission.gallery.slice(1)] }, f.property.etag), denied(404));
+  const intent = await images.authorize(f.session.user, f.session.token, f.property.id, { fileName: "front.png", byteSize: f.bytes.length, mimeType: "image/png" });
+  await assert.rejects(properties.submit(f.session.user, f.session.token, f.property.id, { ...f.submission,
+    gallery: [galleryItem(intent.assetId, true), ...f.submission.gallery.slice(1)] }, f.property.etag), denied(409));
+  assert.equal((await properties.read(f.session.user, f.session.token, f.property.id)).version, 1);
+  assert.equal(await db.propertyImage.count({ where: { propertyId: f.property.id } }), 0);
+  let pending = await properties.submit(f.session.user, f.session.token, f.property.id, f.submission, f.property.etag);
+  const assetId = f.submission.gallery[0].assetId;
+  await db.cloudinaryAsset.update({ where: { id: assetId }, data: { lifecycle: "DELETE_PENDING" } });
+  await assert.rejects(properties.changeStatus(admin.user, admin.token, pending.id, { status: "PUBLISHED" }, pending.etag, true), denied(422));
+  assert.equal((await properties.read(f.session.user, f.session.token, pending.id)).status, "PENDING_REVIEW");
+  await db.cloudinaryAsset.update({ where: { id: assetId }, data: { lifecycle: "READY" } });
+  const other = await properties.create(f.session.user, f.session.token, {});
+  const otherFixture = { ...f, property: other }, otherGallery = [];
+  for (let i = 0; i < 3; i++) otherGallery.push(galleryItem(await readyImage(otherFixture), i === 0));
+  await properties.submit(f.session.user, f.session.token, other.id, { ...f.submission, gallery: otherGallery }, other.etag);
+  const query = new URLSearchParams({ ownerId: f.user.id, status: "PENDING_REVIEW" });
+  const queue = await properties.adminList(admin.user, admin.token, query);
+  assert.deepEqual(queue.data.map(row => row.id), [pending.id, other.id]);
+  await properties.changeStatus(f.session.user, f.session.token, pending.id, { status: "DRAFT" }, pending.etag);
+  pending = await properties.read(f.session.user, f.session.token, pending.id);
+  pending = await properties.submit(f.session.user, f.session.token, pending.id, f.submission, pending.etag);
+  assert.deepEqual((await properties.adminList(admin.user, admin.token, query)).data.map(row => row.id), [other.id, pending.id]);
+  const competing = await Promise.all([
+    apiFetch("/admin/properties/" + pending.id + "/status", { method: "PATCH", headers: { Authorization: "Bearer " + admin.token, "If-Match": pending.etag }, body: JSON.stringify({ status: "PUBLISHED" }) }),
+    apiFetch("/agent/properties/" + pending.id + "/status", { method: "PATCH", headers: { Authorization: "Bearer " + f.session.token, "If-Match": pending.etag }, body: JSON.stringify({ status: "DRAFT" }) }),
+  ]);
+  assert.deepEqual(competing.map(response => response.status).sort(), [200, 412]);
 });

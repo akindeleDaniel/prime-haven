@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ApiError } from "../http/errors.js";
 import { parseInput } from "../auth/validation.js";
+import { gallerySchema } from "../images/validation.js";
 
 export const states = ["Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno", "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo", "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", "Zamfara"] as const;
 const text = (min: number, max: number) => z.string().trim().transform(value => value === "" ? null : value)
@@ -61,6 +62,32 @@ const querySchema = z.strictObject({
   rejectedOnly: z.enum(["true", "false"]).optional(),
   sort: z.enum(["updated_desc", "created_desc"]).default("updated_desc"),
 });
+export const submissionSchema = z.strictObject({
+  content: contentSchema, amenityIds: writeSchema.shape.amenityIds.unwrap(),
+  gallery: gallerySchema.shape.gallery,
+}).superRefine((data, context) => {
+  for (const field of missingRequirements(data.content).filter(item => item.path !== "gallery")) {
+    context.addIssue({ code: "custom", path: field.path.split("."), message: field.message });
+  }
+  if (data.gallery.length < 3) context.addIssue({ code: "custom", path: ["gallery"], message: "At least three images are required." });
+});
+export const statusSchema = z.strictObject({ status: z.enum(["DRAFT", "PENDING_REVIEW", "PUBLISHED", "UNDER_OFFER", "CLOSED", "ARCHIVED"]) });
+export const moderationSchema = statusSchema.extend({ reason: text(1, 1000).optional() });
+const adminQuerySchema = z.strictObject({
+  page: integer(1000000).default(1), pageSize: integer(50).default(20),
+  status: statusSchema.shape.status.optional(), ownerId: z.string().uuid().optional(),
+  verified: z.enum(["true", "false"]).optional(), featured: z.enum(["true", "false"]).optional(),
+  sort: z.enum(["updated_desc", "submitted_asc"]).optional(),
+});
+export function parseAdminQuery(params: URLSearchParams) {
+  const values: Record<string, string> = {};
+  for (const [key, value] of params) {
+    if (key in values) throw new ApiError(400, "INVALID_REQUEST", "Repeated query parameter.");
+    values[key] = value;
+  }
+  const query = parseInput(adminQuerySchema, values);
+  return { ...query, sort: query.sort ?? (query.status === "PENDING_REVIEW" ? "submitted_asc" : "updated_desc") };
+}
 export function parseQuery(params: URLSearchParams) {
   const values: Record<string, string> = {};
   for (const [key, value] of params) {
@@ -71,7 +98,7 @@ export function parseQuery(params: URLSearchParams) {
 }
 
 export function missingRequirements(content: Content) {
-  const required: (keyof Content)[] = ["title", "description", "purpose", "propertyType", "priceNaira", "state", "city", "neighbourhood", "exactAddress"];
+  const required: (keyof Content)[] = ["title", "description", "purpose", "propertyType", "priceNaira", "negotiable", "state", "city", "neighbourhood", "exactAddress"];
   if (content.purpose === "FOR_RENT") required.push("rentPeriod");
   if (content.propertyType === "LAND") required.push("plotSizeSqm", "titleDocumentType");
   else if (content.propertyType && residential.includes(content.propertyType)) required.push("bedrooms", "bathrooms", "toilets", "furnishing", "parkingSpaces");

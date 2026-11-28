@@ -8,6 +8,7 @@ import { parseId } from "../properties/validation.js";
 import { propertyEtag } from "../properties/identity.js";
 import { propertyInclude, propertyProjection } from "../properties/service.js";
 import { type CloudinaryProvider, metadataSchema } from "./cloudinary.js";
+import { replaceGallery } from "./gallery.js";
 import { decodeImage, gallerySchema, uploadSchema } from "./validation.js";
 
 const options = { maxWait: 15000, timeout: 15000 };
@@ -27,7 +28,7 @@ export class ImageService {
     await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${id}::uuid FOR UPDATE`;
     const property = await tx.property.findUnique({ where: { id } });
     if (!property || (user.role !== "ADMINISTRATOR" && (user.role !== "AGENT" || property.ownerId !== user.id))) throw new ApiError(404, "NOT_FOUND", "Property not found.");
-    if (property.status !== "DRAFT") throw new ApiError(409, "INVALID_TRANSITION", "Image management currently supports Drafts.");
+    if (!["DRAFT", "PUBLISHED", "UNDER_OFFER"].includes(property.status)) throw new ApiError(409, "INVALID_TRANSITION", "Uploads are unavailable in this property status.");
     return property;
   }
   private async asset(tx: Prisma.TransactionClient, id: string, propertyId: string) {
@@ -119,20 +120,8 @@ export class ImageService {
       const property = await this.access(tx, actor, token, propertyId);
       if (!ifMatch) throw new ApiError(428, "PRECONDITION_REQUIRED", "If-Match is required.");
       if (ifMatch !== propertyEtag(property)) throw new ApiError(412, "STALE_RESOURCE", "Read the latest property before editing the gallery.");
-      const old = await tx.propertyImage.findMany({ where: { propertyId } });
-      const desired = new Set(data.gallery.map(item => item.assetId));
-      for (const id of [...new Set([...old.map(item => item.assetId), ...desired])].sort()) {
-        const asset = await this.asset(tx, id, propertyId);
-        if (desired.has(id) && (asset.lifecycle !== "READY" || !asset.verifiedAt)) throw unavailable();
-      }
-      // Rebuild presentation rows atomically to avoid transient order/cover uniqueness collisions.
-      await tx.propertyImage.deleteMany({ where: { propertyId } });
-      for (const [index, item] of data.gallery.entries()) await tx.propertyImage.create({ data: {
-        id: old.find(image => image.assetId === item.assetId)?.id, createdAt: old.find(image => image.assetId === item.assetId)?.createdAt,
-        propertyId, assetId: item.assetId, position: index + 1,
-        isCover: item.isCover, caption: item.caption, altText: item.altText ?? item.caption } });
-      const removed = old.filter(item => !desired.has(item.assetId)).map(item => item.assetId);
-      await tx.cloudinaryAsset.updateMany({ where: { id: { in: removed } }, data: { lifecycle: "DELETE_PENDING", deleteAfter: this.clock() } });
+      if (property.status !== "DRAFT") throw new ApiError(409, "INVALID_TRANSITION", "Public gallery changes require a complete submission.");
+      await replaceGallery(tx, propertyId, data.gallery, this.clock());
       const row = await tx.property.update({ where: { id: propertyId }, data: { version: { increment: 1 } }, include: propertyInclude });
       await tx.auditLog.create({ data: { actorId: actor.id, propertyId, action: "PROPERTY_EDITED", subjectType: "PROPERTY", subjectReference: property.reference, summary: "Property gallery updated." } });
       return propertyProjection(row);

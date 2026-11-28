@@ -39,5 +39,33 @@ export function propertyRouter(auth: AuthService, service: PropertyService): Rou
     response.setHeader("ETag", property.etag);
     response.json({ data: property });
   });
+  router.post("/agent/properties/:id/submissions", async (request, response) => {
+    const property = await service.submit(currentUser(request), bearer(request)!, request.params.id, request.body, request.get("If-Match"));
+    response.setHeader("ETag", property.etag);
+    response.json({ data: property });
+  });
+  router.patch("/agent/properties/:id/status", async (request, response) => {
+    const property = await service.changeStatus(currentUser(request), bearer(request)!, request.params.id, request.body, request.get("If-Match"));
+    if ("etag" in property) response.setHeader("ETag", property.etag);
+    response.json({ data: property });
+  });
+  router.use("/admin/properties", requireAuthentication(auth), requireRoles("ADMINISTRATOR"));
+  router.get("/admin/properties", async (request, response) => {
+    response.json(await service.adminList(currentUser(request), bearer(request)!, new URL(request.originalUrl, "http://localhost").searchParams));
+  });
+  router.use("/admin/properties/:id", (request, _response, next) => {
+    if (request.originalUrl.includes("?")) throw new ApiError(400, "INVALID_REQUEST", "Query parameters are not supported.");
+    next();
+  });
+  router.get("/admin/properties/:id", async (request, response) => {
+    const property = await service.adminRead(currentUser(request), bearer(request)!, request.params.id);
+    response.setHeader("ETag", property.etag);
+    response.json({ data: property });
+  });
+  router.patch("/admin/properties/:id/status", async (request, response) => {
+    const property = await service.changeStatus(currentUser(request), bearer(request)!, request.params.id, request.body, request.get("If-Match"), true);
+    if ("etag" in property) response.setHeader("ETag", property.etag);
+    response.json({ data: property });
+  });
   return router;
 }
