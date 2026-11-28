@@ -37,6 +37,8 @@ Bootstrap first active activated administrator through a controlled procedure, n
 
 ### 2.2 AccountInvitation and PasswordResetToken
 
+**28 November implementation:** PasswordResetToken is implemented in additive migration `20261128010000_password_recovery`, with hashed tokens, 30-minute lifetime constraint and partial unique outstanding-user index. PASSWORD_RESET_REQUESTED/PASSWORD_RESET/PASSWORD_CHANGED extend the existing audit enum. Applied migration history is preserved.
+
 Separate tables: id UUID, userId UUID RESTRICT, tokenHash text unique, createdAt/expiresAt timestamps, consumedAt/revokedAt nullable timestamps. expiry > creation; forbid consumed and revoked together. Partial unique userId where both are null includes expired rows; expiry alone does not free the slot. Lifetimes: invitation 48h, reset 30m.
 
 Issuance locks User first, revokes previous unused/unrevoked tokens including expired ones, inserts replacement atomically. Acceptance uses the same User-first lock order, rechecks active/eligible account and token expiry/state, conditionally consumes and commits password activation/reset plus session revocation together. No activation bypass by reset. Store only hashes; avoid account enumeration. Cleanup is bounded and never makes expired tokens usable.

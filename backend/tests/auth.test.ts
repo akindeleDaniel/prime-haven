@@ -17,7 +17,7 @@ import { ApiError, requestContext, errorHandler } from "../src/http/errors.js";
 import { createApp } from "../src/app.js";
 import { loginRateLimit, requireAuthentication, requireRoles } from "../src/auth/middleware.js";
 import { getEnvironment } from "../src/config/environment.js";
-import type { InvitationEmail } from "../src/auth/email.js";
+import { type InvitationEmail, ZeptoMailInvitationMailer } from "../src/auth/email.js";
 
 const origin = "https://prime-haven.test";
 const key = randomBytes(32).toString("hex");
@@ -33,6 +33,8 @@ let bff: string;
 let adminId: string;
 let namespaceCreated = false;
 const sentInvitationEmails: InvitationEmail[] = [];
+const resetEmails: InvitationEmail[] = [];
+let failResetEmail = false;
 let failNextInvitationEmail = false;
 
 const denied = (status: number) => (error: unknown) => error instanceof ApiError && error.status === status;
@@ -63,13 +65,16 @@ before(async () => {
   namespaceCreated = true;
   url.searchParams.set("schema", schema);
   db = createDatabaseClient(url.toString());
-  for (const migration of ["20261127010000_auth_foundation", "20261127020000_agent_invitations"]) {
+  for (const migration of ["20261127010000_auth_foundation", "20261127020000_agent_invitations", "20261128010000_password_recovery"]) {
     const sql = await readFile(`prisma/migrations/${migration}/migration.sql`, "utf8");
     for (const statement of sql.split(";").filter(part => part.trim())) await db.$executeRawUnsafe(statement);
   }
   service = new AuthService(db, () => new Date(time), { sendInvitation: async email => {
     sentInvitationEmails.push(email);
     if (failNextInvitationEmail) { failNextInvitationEmail = false; throw new Error("Mock delivery failure"); }
+  }, sendPasswordReset: async email => {
+    resetEmails.push(email);
+    if (failResetEmail) throw new Error("Mock provider failure with sensitive data");
   } });
   const bootstrapResults = await Promise.allSettled(Array.from({ length: 2 }, () => service.bootstrap({ name: "Test Administrator", email: "admin@example.test", phone: "+2348000000001", password })));
   const created = bootstrapResults.filter(result => result.status === "fulfilled");
@@ -82,6 +87,7 @@ before(async () => {
 }, { timeout: 30_000 });
 
 after(async () => {
+  await service?.waitForResetDeliveries();
   if (next && next.exitCode === null && next.signalCode === null) { const exited = once(next, "exit"); next.kill(); await exited; }
   await close(backend);
   if (db) await db.$disconnect();
@@ -333,6 +339,148 @@ test("Express rejects hostile origin/transport, unexpected keys, malformed JSON/
   assert.equal((await apiFetch("/auth/sign-in", { method: "POST", body: JSON.stringify({ padding: "x".repeat(9000) }) })).status, 413);
 });
 
+async function recoveryUser(email: string) {
+  return db.user.create({ data: { name: "Recovery Test", email, phone: "+2348000000050", role: "AGENT",
+    passwordHash: await hashPassword(password), passwordActivatedAt: new Date(time) } });
+}
+
+test("recovery returns equivalent responses for unknown, deactivated, unactivated and eligible accounts; mail failure stays generic", async () => {
+  const user = await recoveryUser("recovery-generic@example.test");
+  const deactivated = await recoveryUser("recovery-disabled@example.test");
+  await db.user.update({ where: { id: deactivated.id }, data: { accountStatus: "DEACTIVATED", deactivatedAt: new Date(time) } });
+  const beforeCount = resetEmails.length;
+  for (const email of ["unknown-reset@example.test", deactivated.email, "inactive@example.test", user.email]) {
+    const response = await apiFetch("/auth/password-reset-requests", { method: "POST", body: JSON.stringify({ email }) });
+    assert.equal(response.status, 202);
+    assert.deepEqual(await response.json(), { data: { message: "If eligible, password reset instructions will be sent." } });
+    assert.equal(response.headers.get("X-Session-Token"), null);
+  }
+  await service.waitForResetDeliveries();
+  assert.equal(resetEmails.length, beforeCount + 1);
+  assert.equal(await db.passwordResetToken.count({ where: { userId: deactivated.id } }), 0);
+  const row = await db.passwordResetToken.findFirstOrThrow({ where: { userId: user.id } });
+  assert.equal(row.tokenHash, hashToken(resetEmails.at(-1)!.token));
+  assert.equal(row.expiresAt.getTime() - row.createdAt.getTime(), 30 * 60_000);
+  const failureUser = await recoveryUser("recovery-email-failure@example.test");
+  failResetEmail = true;
+  try {
+    const response = await apiFetch("/auth/password-reset-requests", { method: "POST", body: JSON.stringify({ email: failureUser.email }) });
+    assert.equal(response.status, 202);
+    await service.waitForResetDeliveries();
+  } finally { failResetEmail = false; }
+  assert(await db.passwordResetToken.findFirst({ where: { userId: failureUser.id } }));
+});
+
+test("reset cooldown persists, replacement invalidates old links, concurrent consumption succeeds once and revokes all sessions", async () => {
+  const user = await recoveryUser("recovery-success@example.test");
+  const firstSession = await service.login(user.email, password);
+  const secondSession = await service.login(user.email, password);
+  await service.requestPasswordReset({ email: user.email });
+  await service.waitForResetDeliveries();
+  const firstToken = resetEmails.at(-1)!.token;
+  const count = resetEmails.length;
+  await service.requestPasswordReset({ email: user.email });
+  await service.waitForResetDeliveries();
+  assert.equal(resetEmails.length, count);
+  time += 60_000;
+  await service.requestPasswordReset({ email: user.email });
+  await service.waitForResetDeliveries();
+  const token = resetEmails.at(-1)!.token;
+  assert.notEqual(token, firstToken);
+  await assert.rejects(service.resetPassword({ token: firstToken, newPassword: password + "x" }), denied(422));
+  const attempts = await Promise.allSettled([service.resetPassword({ token, newPassword: password + "x" }), service.resetPassword({ token, newPassword: password + "x" })]);
+  assert.equal(attempts.filter(result => result.status === "fulfilled").length, 1);
+  assert.equal(attempts.filter(result => result.status === "rejected").length, 1);
+  await assert.rejects(service.resetPassword({ token, newPassword: password }), denied(422));
+  for (const session of [firstSession, secondSession]) await assert.rejects(service.authenticate(session.token), denied(401));
+  await assert.rejects(service.login(user.email, password), denied(401));
+  assert.equal((await service.login(user.email, password + "x")).user.id, user.id);
+  assert.equal(await db.auditLog.count({ where: { affectedUserId: user.id, action: "PASSWORD_RESET" } }), 1);
+  assert.equal(await db.passwordResetToken.count({ where: { userId: user.id, consumedAt: null, revokedAt: null } }), 0);
+});
+
+test("expired, unknown and deactivated-account reset links fail without changing the password", async () => {
+  const user = await recoveryUser("recovery-expired@example.test");
+  await service.requestPasswordReset({ email: user.email });
+  await service.waitForResetDeliveries();
+  const token = resetEmails.at(-1)!.token;
+  const start = time;
+  time += 30 * 60_000;
+  await assert.rejects(service.resetPassword({ token, newPassword: password + "x" }), denied(422));
+  time = start;
+  await db.user.update({ where: { id: user.id }, data: { accountStatus: "DEACTIVATED", deactivatedAt: new Date(time) } });
+  await assert.rejects(service.resetPassword({ token, newPassword: password + "x" }), denied(422));
+  await assert.rejects(service.resetPassword({ token: randomBytes(32).toString("base64url"), newPassword: password }), denied(422));
+  assert(await verifyPassword(password, (await db.user.findUniqueOrThrow({ where: { id: user.id } })).passwordHash));
+});
+
+test("password change requires a live session and current password; success revokes sessions and outstanding reset tokens", async () => {
+  const user = await recoveryUser("change-password@example.test");
+  const session = await service.login(user.email, password);
+  const otherSession = await service.login(user.email, password);
+  await service.requestPasswordReset({ email: user.email });
+  await service.waitForResetDeliveries();
+  const token = resetEmails.at(-1)!.token;
+  const body = JSON.stringify({ currentPassword: password, newPassword: password + "changed" });
+  assert.equal((await apiFetch("/me/password", { method: "PUT", body })).status, 401);
+  assert.equal((await apiFetch("/me/password", { method: "PUT", headers: { Authorization: `Bearer ${session.token}` }, body: JSON.stringify({ currentPassword: "incorrect-password", newPassword: password + "changed" }) })).status, 422);
+  assert.equal((await service.authenticate(session.token)).id, user.id);
+  const changed = await apiFetch("/me/password", { method: "PUT", headers: { Authorization: `Bearer ${session.token}` }, body });
+  assert.equal(changed.status, 204);
+  for (const credential of [session.token, otherSession.token]) await assert.rejects(service.authenticate(credential), denied(401));
+  await assert.rejects(service.changePassword(session.token, { currentPassword: password + "changed", newPassword: password }), denied(401));
+  await assert.rejects(service.resetPassword({ token, newPassword: password }), denied(422));
+  assert.equal((await service.login(user.email, password + "changed")).user.id, user.id);
+  assert.equal(await db.auditLog.count({ where: { affectedUserId: user.id, action: "PASSWORD_CHANGED" } }), 1);
+  const audit = await db.auditLog.findMany({ where: { affectedUserId: user.id } });
+  for (const secret of [password, token, user.email]) assert(!JSON.stringify(audit).includes(secret));
+});
+
+test("recovery endpoints rate limit independently of account existence or spoofed forwarding headers", async () => {
+  const server = createServer(createApp({ appOrigin: origin, bffSharedSecret: key }, service));
+  const base = await listen(server);
+  try {
+    for (let index = 0; index < 31; index++) {
+      const response = await fetch(base + "/api/v1/auth/password-reset-requests", { method: "POST", headers: {
+        "X-BFF-Key": key, Origin: origin, "X-Prime-Haven-CSRF": "1", "Content-Type": "application/json", "X-Forwarded-For": `192.0.2.${index}`,
+      }, body: JSON.stringify({ email: "rate-unknown@example.test" }) });
+      assert.equal(response.status, index < 30 ? 202 : 429);
+      if (index === 30) assert(response.headers.get("Retry-After"));
+    }
+  } finally { await close(server); }
+});
+
+test("ZeptoMail reset uses a trusted origin, escaped content and bounded provider request with mocked fetch", async () => {
+  const originalFetch = globalThis.fetch;
+  const saved = { APP_ORIGIN: process.env.APP_ORIGIN, ZEPTOMAIL_API_TOKEN: process.env.ZEPTOMAIL_API_TOKEN, ZEPTOMAIL_FROM_EMAIL: process.env.ZEPTOMAIL_FROM_EMAIL };
+  let captured: Record<string, unknown> | undefined;
+  try {
+    process.env.APP_ORIGIN = origin;
+    process.env.ZEPTOMAIL_API_TOKEN = "mock-only-token";
+    process.env.ZEPTOMAIL_FROM_EMAIL = "sender@example.test";
+    globalThis.fetch = async (url, init) => {
+      assert.equal(url, "https://api.zeptomail.com/v1.1/email");
+      assert.equal(new Headers(init?.headers).get("Authorization"), "Zoho-enczapikey mock-only-token");
+      assert.equal(init?.redirect, "error");
+      assert(init?.signal);
+      captured = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response("{}", { status: 202 });
+    };
+    await new ZeptoMailInvitationMailer().sendPasswordReset({ recipientName: "<script>", recipientEmail: "recipient@example.test", token: "mock-reset-token", expiresAt: new Date(time + 30 * 60_000) });
+    assert(captured);
+    assert(String(captured.htmlbody).includes("&lt;script&gt;"));
+    assert(String(captured.htmlbody).includes(origin + "/reset-password?token=mock-reset-token"));
+    assert(String(captured.textbody).includes("30 minutes"));
+    globalThis.fetch = async () => { throw new Error("Simulated failure"); };
+    await assert.rejects(new ZeptoMailInvitationMailer().sendPasswordReset({ recipientName: "Name", recipientEmail: "recipient@example.test", token: "mock-reset-token", expiresAt: new Date(time) }));
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+  }
+});
+
 test("role middleware rejects Agent for Administrator operation and limiter ignores spoofed forwarding headers", async () => {
   const app = express();
   app.use(requestContext);
@@ -408,6 +556,22 @@ test("real Next BFF sets secure host-only cookie, strips secrets, enforces CSRF 
   assert.notEqual(replacementToken, firstInvitationToken);
   const activate = await fetch(bff+"/api/v1/auth/invitation-acceptances", { method:"POST",headers,body:JSON.stringify({token:replacementToken,password}) });
   assert.equal(activate.status,204);
+  const resetRequest = await fetch(bff+"/api/v1/auth/password-reset-requests", { method:"POST", headers, body:JSON.stringify({email:"bff-agent@example.test"}) });
+  assert.equal(resetRequest.status,202);
+  await service.waitForResetDeliveries();
+  const resetToken = resetEmails.at(-1)!.token;
+  assert.equal((await fetch(bff+"/api/v1/auth/password-resets", { method:"POST", headers:{"Content-Type":"application/json"},body:JSON.stringify({token:resetToken,newPassword:password+"bff"}) })).status,403);
+  const reset = await fetch(bff+"/api/v1/auth/password-resets", { method:"POST", headers,body:JSON.stringify({token:resetToken,newPassword:password+"bff"}) });
+  assert.equal(reset.status,204);
+  assert.match(reset.headers.get("Set-Cookie")!,/Max-Age=0/);
+  const newLogin = await fetch(bff+"/api/v1/auth/sign-in", { method:"POST", headers,body:JSON.stringify({email:"bff-agent@example.test",password:password+"bff"}) });
+  assert.equal(newLogin.status,200);
+  const newCookie = newLogin.headers.get("Set-Cookie")!.split(";")[0];
+  assert.equal((await fetch(bff+"/api/v1/me/password", { method:"PUT",headers,body:JSON.stringify({currentPassword:password+"bff",newPassword:password+"final"}) })).status,401);
+  const change = await fetch(bff+"/api/v1/me/password", { method:"PUT",headers:{...headers,Cookie:newCookie},body:JSON.stringify({currentPassword:password+"bff",newPassword:password+"final"}) });
+  assert.equal(change.status,204);
+  assert.match(change.headers.get("Set-Cookie")!,/Max-Age=0/);
+  assert.equal((await fetch(bff+"/api/v1/me", {headers:{Cookie:newCookie}})).status,401);
   assert.equal((await fetch(bff+"/api/v1/auth/sign-out",{method:"POST",headers:{...headers,Cookie:sessionCookie},body:"{}"})).status,204);
   const replay = await fetch(bff+"/api/v1/me", {headers:{Cookie:sessionCookie}});
   assert.equal(replay.status,401);

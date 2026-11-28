@@ -6,6 +6,18 @@ import { agentCreateSchema, emptySchema, loginSchema, parseInput } from "../auth
 
 export function authRouter(service: AuthService): Router {
   const router = Router();
+  router.post("/auth/password-reset-requests", loginRateLimit(30), async (request, response) => {
+    await service.requestPasswordReset(request.body);
+    response.status(202).json({ data: { message: "If eligible, password reset instructions will be sent." } });
+  });
+  router.post("/auth/password-resets", loginRateLimit(30), async (request, response) => {
+    await service.resetPassword(request.body);
+    response.status(204).end();
+  });
+  router.put("/me/password", loginRateLimit(30), requireAuthentication(service), requireRoles("AGENT", "ADMINISTRATOR"), async (request, response) => {
+    await service.changePassword(bearer(request), request.body);
+    response.status(204).end();
+  });
   router.post("/auth/sign-in", loginRateLimit(), async (request, response) => {
     const input = parseInput(loginSchema, request.body);
     const session = await service.login(input.email, input.password, bearer(request));

@@ -29,6 +29,8 @@ An Agent or Administrator, with identity, unique normalized email, name/phone, p
 
 ### 2.2 AccountInvitation, PasswordResetToken and Session
 
+**28 November implementation:** Self-service password recovery and current-password change now implement the existing rules below. Reset tokens are consumed/revoked under the User lock, and successful reset/change revokes all sessions atomically. DOC-08 Section 1.7 records transport, rate and mail-delivery choices.
+
 Supporting security records, not extra product workflows. Invitation/reset records hold user, cryptographic token hash, creation/expiry and consumed/revoked times. Replacement revokes old unused tokens and creates a new one atomically; only one current unused/unrevoked token per user. Acceptance checks account eligibility/expiry and atomically consumes the token with password update/session revocation.
 
 Session holds user, unique hash of a random opaque token, creation/activity, idle expiry, absolute expiry and revocation. Enforce 12-hour inactivity and seven-day absolute expiry; activity never extends the absolute boundary. Express checks current account/role/session on every protected request. DOC-02/PH-DESIGN-004 govern BFF cookies, forwarding, CSRF and origins; browser JavaScript cannot access the HttpOnly token.

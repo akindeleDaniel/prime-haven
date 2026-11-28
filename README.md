@@ -6,7 +6,8 @@ Fictional Nigerian property portfolio project. Concept project: listings are fic
 
 Implemented: User/Session models, first-admin initialization, bcrypt hashing, sign-in/out, current user,
 PostgreSQL session expiration/revocation, agent invitations/activation and explicit Next.js BFF handlers.
-Password reset/change, account deactivation, listings and authentication UI remain outside these slices.
+Password recovery and authenticated password change are implemented. Account deactivation, listings and
+authentication UI remain outside these slices.
 
 1. Install each app's lockfile with `npm ci` in `backend` and `frontend`.
 2. Copy the `.env.example` files to `backend/.env` and `frontend/.env.local`. Use local `prime_haven_dev`
@@ -37,6 +38,16 @@ CSRF-token endpoint; SameSite provides additional protection. Express has no bro
 Administrator invitation handlers use `/api/v1/admin/agents` and `/api/v1/admin/agents/{id}/invitations`;
 public activation uses `/api/v1/auth/invitation-acceptances`. They use the same BFF origin/CSRF checks.
 
+Recovery uses `POST /api/v1/auth/password-reset-requests` with `{email}` and always returns the same
+202 message for valid known/unknown/ineligible emails. Eligible active, activated accounts receive a
+single-use 30-minute reset link built from APP_ORIGIN. Email delivery runs after persistence in the Express
+process, outside public response timing; a restart may lose pending delivery and the user can request again
+after the 60-second persistent cooldown. Provider failures log only a safe event code. No automatic retry.
+`POST /api/v1/auth/password-resets` takes `{token,newPassword}`; `PUT /api/v1/me/password` takes
+`{currentPassword,newPassword}` and requires a live session. Both revoke all existing sessions and outstanding
+reset links atomically and clear the caller cookie on success. They do not sign in automatically.
+The reset email targets `/reset-password`; its UI remains subject to Figma design/approval.
+
 HTTPS cookie: `__Host-ph-session; Path=/; HttpOnly; Secure; SameSite=Strict`, no Domain, seven-day absolute
 expiry. Explicit loopback HTTP uses `ph-session` without Secure. Express independently enforces twelve-hour
 idle expiry, absolute expiry, revocation, role and current account eligibility. Next forwards only the
@@ -59,4 +70,5 @@ still require provider-specific verification. Bcrypt cost 12 uses a minimum of 1
 of 72 UTF-8 bytes; oversized passwords are rejected rather than truncated
 ([bcrypt documentation](https://github.com/dcodeIO/bcrypt.js)). Security logs contain only event codes,
 opaque IDs where appropriate and timestamps. Persistent domain AuditLog and remaining PH-AUTH-001 flows
-remain later work; this slice does not establish full roadmap acceptance.
+remain partially implemented: account creation/activation and password recovery/change events persist;
+general audit browsing and remaining PH-AUTH-001 flows remain later work. This does not establish full roadmap acceptance.

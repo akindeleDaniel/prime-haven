@@ -2,7 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
-type Operation = "sign-in" | "sign-out" | "me" | "create-agent" | "resend-invitation" | "accept-invitation";
+type Operation = "sign-in" | "sign-out" | "me" | "create-agent" | "resend-invitation" | "accept-invitation" | "password-reset-requests" | "password-resets" | "change-password";
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const NO_STORE = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Vary": "Cookie" };
 
@@ -79,13 +79,14 @@ export async function handleAuth(request: NextRequest, operation: Operation, age
 
   const headers = new Headers({ "X-BFF-Key": config.key });
   // No inbound Authorization, Cookie, forwarding headers or caller-selected URL is relayed.
-  if (token && operation !== "accept-invitation") headers.set("Authorization", `Bearer ${token}`);
+  if (token && !["accept-invitation", "password-reset-requests", "password-resets"].includes(operation)) headers.set("Authorization", `Bearer ${token}`);
   if (mutate) {
     headers.set("Origin", config.origin);
     headers.set("X-Prime-Haven-CSRF", "1");
     headers.set("Content-Type", "application/json");
   }
   const routePath = operation === "me" ? "/me"
+    : operation === "change-password" ? "/me/password"
     : operation === "create-agent" ? "/admin/agents"
       : operation === "resend-invitation" ? `/admin/agents/${agentId ?? ""}/invitations`
         : operation === "accept-invitation" ? "/auth/invitation-acceptances" : `/auth/${operation}`;
@@ -95,7 +96,7 @@ export async function handleAuth(request: NextRequest, operation: Operation, age
   const path = routePath;
   let upstream: Response;
   try {
-    upstream = await fetch(`${config.api}/api/v1${path}`, { method: mutate ? "POST" : "GET", headers, body,
+    upstream = await fetch(`${config.api}/api/v1${path}`, { method: operation === "change-password" ? "PUT" : mutate ? "POST" : "GET", headers, body,
       cache: "no-store", redirect: "error", signal: AbortSignal.timeout(15_000) });
   } catch (error) {
     return error instanceof Error && error.name === "TimeoutError" ? failure(504, "UPSTREAM_TIMEOUT", "Authentication timed out.") : failure(502, "UPSTREAM_ERROR", "Authentication service is unavailable.");
@@ -108,8 +109,11 @@ export async function handleAuth(request: NextRequest, operation: Operation, age
     response = NextResponse.json({ error: json.error }, { status: upstream.status, headers: NO_STORE });
     const retry = upstream.headers.get("Retry-After");
     if (upstream.status === 429 && retry && /^\d+$/.test(retry)) response.headers.set("Retry-After", retry);
-  } else if ((operation === "sign-out" || operation === "accept-invitation") && upstream.status === 204) {
+  } else if (["sign-out", "accept-invitation", "password-resets", "change-password"].includes(operation) && upstream.status === 204) {
     response = new NextResponse(null, { status: 204, headers: NO_STORE });
+  } else if (operation === "password-reset-requests" && upstream.status === 202) {
+    // Fixed public projection; never relay eligibility or provider details.
+    response = NextResponse.json({ data: { message: "If eligible, password reset instructions will be sent." } }, { status: 202, headers: NO_STORE });
   } else if (operation === "create-agent" || operation === "resend-invitation") {
     if (upstream.status !== (operation === "create-agent" ? 201 : 202)) return failure(502, "UPSTREAM_ERROR", "Invalid authentication response.");
     const payload: unknown = await upstream.json().catch(() => null);
@@ -142,7 +146,7 @@ export async function handleAuth(request: NextRequest, operation: Operation, age
     }
     response.cookies.set(config.cookie, created, { ...cookieOptions, expires });
   }
-  if ((operation === "sign-out" && upstream.status === 204) || upstream.status === 401 && (operation === "me" || adminOperation)) {
+  if ((["sign-out", "password-resets", "change-password"].includes(operation) && upstream.status === 204) || upstream.status === 401 && (operation === "me" || adminOperation || operation === "change-password")) {
     response.cookies.set(config.cookie, "", { ...cookieOptions, expires: new Date(0), maxAge: 0 });
   }
   return response;

@@ -18,6 +18,11 @@ export const invitationAcceptanceSchema = z.strictObject({
   token: z.string().regex(/^[A-Za-z0-9_-]{43}$/), password: newPassword,
 });
 export const agentIdSchema = z.string().uuid();
+export const passwordResetRequestSchema = z.strictObject({ email });
+export const passwordResetSchema = z.strictObject({
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/), newPassword,
+});
+export const passwordChangeSchema = z.strictObject({ currentPassword: password.min(1), newPassword });
 
 export function rejectUnsafeKeys(value: unknown): void {
   if (!value || typeof value !== "object") return;

@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { PrismaClient, User, Prisma } from "../generated/prisma/client.js";
 import { ApiError } from "../http/errors.js";
 import { hashPassword, verifyPassword } from "./password.js";
-import { agentCreateSchema, agentIdSchema, bootstrapSchema, invitationAcceptanceSchema, parseInput } from "./validation.js";
+import { agentCreateSchema, agentIdSchema, bootstrapSchema, invitationAcceptanceSchema, parseInput, passwordChangeSchema, passwordResetRequestSchema, passwordResetSchema } from "./validation.js";
 import { type InvitationMailer, ZeptoMailInvitationMailer } from "./email.js";
 
 export const IDLE_MS = 12 * 60 * 60 * 1000;
@@ -36,6 +36,93 @@ async function lockAdministrator(tx: Prisma.TransactionClient, actorId: string, 
 
 export class AuthService {
   constructor(private db: PrismaClient, private clock: () => Date = () => new Date(), private invitationMailer: InvitationMailer = new ZeptoMailInvitationMailer()) {}
+  private resetDeliveries = new Set<Promise<void>>();
+
+  // Bounded in-process delivery; a restart can lose pending mail, so users may request again.
+  // Provider latency/errors never change the public recovery response.
+  private queueResetEmail(message: Parameters<InvitationMailer["sendPasswordReset"]>[0]): void {
+    const delivery = new Promise<void>(resolve => setImmediate(resolve))
+      .then(() => this.invitationMailer.sendPasswordReset(message))
+      .catch(() => { console.warn(JSON.stringify({ event: "PASSWORD_RESET_EMAIL_FAILED" })); });
+    this.resetDeliveries.add(delivery);
+    void delivery.finally(() => this.resetDeliveries.delete(delivery));
+  }
+
+  async waitForResetDeliveries(): Promise<void> {
+    await Promise.all(this.resetDeliveries);
+  }
+
+  async requestPasswordReset(input: unknown): Promise<void> {
+    const data = parseInput(passwordResetRequestSchema, input);
+    const started = performance.now();
+    try {
+      const issue = await this.db.$transaction(async tx => {
+        const rows = await tx.$queryRaw<User[]>`SELECT * FROM "User" WHERE email = ${data.email} FOR UPDATE`;
+        const user = rows[0];
+        if (!user || !eligible(user)) return null;
+        const now = this.clock();
+        // Persistent cooldown serializes requests without revealing account eligibility.
+        const recent = await tx.passwordResetToken.findFirst({ where: { userId: user.id, createdAt: { gt: new Date(now.getTime() - 60_000) } } });
+        if (recent) return null;
+        await tx.passwordResetToken.updateMany({ where: { userId: user.id, consumedAt: null, revokedAt: null }, data: { revokedAt: now } });
+        const token = randomBytes(32).toString("base64url");
+        const expiresAt = new Date(now.getTime() + 30 * 60_000);
+        await tx.passwordResetToken.create({ data: { userId: user.id, tokenHash: hashToken(token), createdAt: now, expiresAt } });
+        await tx.auditLog.create({ data: { affectedUserId: user.id, action: "PASSWORD_RESET_REQUESTED", subjectType: "USER", subjectReference: user.id, summary: "Self-service password reset requested." } });
+        return { recipientName: user.name, recipientEmail: user.email, token, expiresAt };
+      }, options);
+      if (issue) this.queueResetEmail(issue);
+    } finally {
+      // Equal minimum response time for known, unknown, inactive and throttled accounts.
+      await new Promise<void>(resolve => setTimeout(resolve, Math.max(0, 250 - (performance.now() - started))));
+    }
+  }
+
+  async resetPassword(input: unknown): Promise<void> {
+    const data = parseInput(passwordResetSchema, input);
+    const tokenHash = hashToken(data.token);
+    const initial = await this.db.passwordResetToken.findUnique({ where: { tokenHash } });
+    const passwordHash = await hashPassword(data.newPassword);
+    const success = await this.db.$transaction(async tx => {
+      if (!initial) return false;
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${initial.userId}::uuid FOR UPDATE`;
+      const user = await tx.user.findUnique({ where: { id: initial.userId } });
+      const now = this.clock();
+      if (!user || !eligible(user)) return false;
+      const consumed = await tx.passwordResetToken.updateMany({ where: { id: initial.id, tokenHash, consumedAt: null, revokedAt: null, expiresAt: { gt: now } }, data: { consumedAt: now } });
+      if (consumed.count !== 1) return false;
+      await tx.user.update({ where: { id: user.id }, data: { passwordHash, failedLoginCount: 0, lockoutUntil: null } });
+      await tx.passwordResetToken.updateMany({ where: { userId: user.id, consumedAt: null, revokedAt: null }, data: { revokedAt: now } });
+      await revokeUserSessions(tx, user.id, now);
+      await tx.auditLog.create({ data: { actorId: user.id, affectedUserId: user.id, action: "PASSWORD_RESET", subjectType: "USER", subjectReference: user.id, summary: "Password reset; all sessions revoked." } });
+      return true;
+    }, options);
+    if (!success) throw new ApiError(422, "INVALID_OR_EXPIRED_TOKEN", "The reset link is invalid or expired.");
+  }
+
+  async changePassword(token: string | undefined, input: unknown): Promise<void> {
+    const data = parseInput(passwordChangeSchema, input);
+    if (!token || !tokenPattern.test(token)) throw new ApiError(401, "UNAUTHENTICATED", "Sign in is required.");
+    const initial = await this.db.session.findUnique({ where: { tokenHash: hashToken(token) } });
+    const passwordHash = await hashPassword(data.newPassword);
+    await this.db.$transaction(async tx => {
+      if (!initial) throw new ApiError(401, "UNAUTHENTICATED", "Sign in is required.");
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${initial.userId}::uuid FOR UPDATE`;
+      const user = await tx.user.findUnique({ where: { id: initial.userId } });
+      const session = await tx.session.findUnique({ where: { id: initial.id } });
+      if (!user || !eligible(user) || !session || session.revokedAt || session.idleExpiresAt <= this.clock() || session.absoluteExpiresAt <= this.clock()) {
+        throw new ApiError(401, "UNAUTHENTICATED", "Sign in is required.");
+      }
+      if (!await verifyPassword(data.currentPassword, user.passwordHash)) throw new ApiError(422, "CURRENT_PASSWORD_INVALID", "The current password is incorrect.");
+      const now = this.clock();
+      // Password verification may wait; recheck expiration immediately before mutation.
+      if (session.idleExpiresAt <= now || session.absoluteExpiresAt <= now) throw new ApiError(401, "UNAUTHENTICATED", "Sign in is required.");
+      await tx.user.update({ where: { id: user.id }, data: { passwordHash, failedLoginCount: 0, lockoutUntil: null } });
+      await tx.passwordResetToken.updateMany({ where: { userId: user.id, consumedAt: null, revokedAt: null }, data: { revokedAt: now } });
+      await revokeUserSessions(tx, user.id, now);
+      await tx.auditLog.create({ data: { actorId: user.id, affectedUserId: user.id, action: "PASSWORD_CHANGED", subjectType: "USER", subjectReference: user.id, summary: "Password changed; all sessions revoked." } });
+    }, options);
+  }
 
   private async sendInvitation(user: { id: string; name: string; email: string }, invitation: { id: string; token: string; expiresAt: Date }): Promise<"SENT" | "FAILED"> {
     let status: "SENT" | "FAILED" = "SENT";

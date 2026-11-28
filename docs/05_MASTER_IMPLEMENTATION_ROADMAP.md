@@ -2,7 +2,7 @@
 
 **Baseline:** [FRS v1.3](01_REQUIREMENTS_BASELINE_FRS_v1.2.md) and [38 approved REV decisions](PRIME_HAVEN_APPROVED_SCOPE_DECISIONS.md)
 
-**Updated:** 27 November 2026
+**Updated:** 28 November 2026
 
 **Authority:** Canonical task IDs, dependencies and status. DOC-03 maps requirements to these tasks; it does not maintain another competing phase sequence.
 
@@ -20,7 +20,7 @@ The scope audit is complete. This documentation synchronization is prepared for 
 | PH-DESIGN-001 | DOC-06 and DOC-07 synchronized to scope | Documentation prepared for review; no domain schema/migration implemented |
 | PH-DESIGN-002 | DOC-08 API contracts | Prepared for owner review; A01-A03 transport details resolved by the authorized authentication slice |
 | PH-DESIGN-003, PH-DESIGN-004 | Remaining workflow/security design deliverables below | Authentication subset resolved in DOC-08 Section 1.5; other scoped work remains |
-| Domain features/integration/quality/release | User/Session/Invitation plus focused account-lifecycle audit events; property/inquiry/etc. models absent | Remaining work planned; local slice verification below does not establish release/owner acceptance |
+| Domain features/integration/quality/release | User/Session/Invitation/PasswordResetToken plus focused account-lifecycle audit events; property/inquiry/etc. models absent | Remaining work planned; local slice verification below does not establish release/owner acceptance |
 
 A file or commit proves presence, not passing tests, deployment or owner acceptance. Do not recreate existing foundations or mark them accepted from this table alone.
 
@@ -43,6 +43,15 @@ The owner explicitly authorized administrator agent creation, resend, single-use
 - ZeptoMail uses a fixed provider endpoint and server-only credentials. Automated tests inject a mock transport; no real email was sent. Provider credentials/domain readiness and live delivery remain unverified. Activation UI is not implemented.
 - Verification: 17 auth/invitation tests passed using PostgreSQL in a fresh temporary `auth_test_*` schema and a built Next.js server; schema cleanup is test-scoped. Backend build/type checks, Prisma validation, frontend lint/type check/production build passed. This does not establish full PH-AUTH-001 acceptance.
 - Password recovery, agent deactivation/reactivation, general audit endpoints and remaining account-management behavior remain for their assigned scope.
+
+### Password recovery and change slice - 28 November 2026
+
+- Implemented A04 `POST /auth/password-reset-requests`, A05 `POST /auth/password-resets` and A07 `PUT /me/password`, plus matching explicit Next.js BFF handlers. Current-password change rechecks the session in the User-locked mutation transaction; reset/change revoke all sessions and outstanding reset tokens, persist safe audit events and clear the BFF cookie without auto-login.
+- Added PasswordResetToken and three audit actions via additive migration `20261128010000_password_recovery`. The guarded local command confirmed loopback `prime_haven_dev` and created a backup before application. Four migrations are up to date; existing data and prior applied migrations were preserved.
+- Recovery returns generic responses for eligible/unknown/ineligible emails, uses a 250 ms minimum processing window and excludes provider delivery latency from the response. Reset tokens expire after 30 minutes and are single-use. Reissuance revokes prior links; persistent 60-second account cooldown and separate per-process 30/minute socket limiters reduce abuse. General proxy/distributed controls remain deployment work.
+- Reused ZeptoMail with a trusted-origin reset URL and mocked transport/provider HTTP in tests. In-process email delivery may be interrupted by restart; user-requested reissuance after cooldown is the recovery path. No real email, frontend UI, Google authentication, deployment or additional planning document was created.
+- Verification: 23 automated tests passed, including successful recovery, unknown/inactive/unactivated responses, mail failure, expired/replaced/reused tokens, concurrent consumption, current-password failure, authorization, session revocation, rate limits, audit sanitization and real Next BFF cookie/CSRF behavior. Backend source/tool/test TypeScript and build, Prisma validation, frontend lint/type check/production build and whitespace checks passed. Temporary test schemas were removed; public local data remained one existing user, zero sessions/reset tokens.
+- General account deactivation/reactivation, profile management, broader audit endpoints, frontend design/implementation and deployed provider verification remain outside this slice. Full roadmap/owner acceptance remains pending.
 
 ## 2. ID reconciliation and phase ownership
 
