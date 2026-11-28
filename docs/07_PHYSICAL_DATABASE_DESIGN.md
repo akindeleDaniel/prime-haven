@@ -49,6 +49,8 @@ id UUID, userId UUID RESTRICT, tokenHash text unique, createdAt/lastActivityAt/i
 
 ### 2.4 Property
 
+**28 November implementation:** Additive migration `20261128020000_property_drafts` implements Property, Amenity/PropertyAmenity, owner/verifier/audit relationships, canonical enums, sequence-backed references and narrow integrity checks. The draft service implements private owner access and version checks; first-publication slug generation is tested but not invoked for drafts. No image/inquiry schema or publishing operation is included.
+
 | Group | Fields / types |
 |---|---|
 | Identity/control | id/ownerId UUID; reference text unique; status PropertyStatus default DRAFT; version integer default 1; createdAt/updatedAt |

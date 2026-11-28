@@ -18,6 +18,9 @@ import { createApp } from "../src/app.js";
 import { loginRateLimit, requireAuthentication, requireRoles } from "../src/auth/middleware.js";
 import { getEnvironment } from "../src/config/environment.js";
 import { type InvitationEmail, ZeptoMailInvitationMailer } from "../src/auth/email.js";
+import { PropertyService } from "../src/properties/service.js";
+import { generatePropertySlug } from "../src/properties/identity.js";
+import { contentSchema, normalizeContent, states } from "../src/properties/validation.js";
 
 const origin = "https://prime-haven.test";
 const key = randomBytes(32).toString("hex");
@@ -65,7 +68,7 @@ before(async () => {
   namespaceCreated = true;
   url.searchParams.set("schema", schema);
   db = createDatabaseClient(url.toString());
-  for (const migration of ["20261127010000_auth_foundation", "20261127020000_agent_invitations", "20261128010000_password_recovery"]) {
+  for (const migration of ["20261127010000_auth_foundation", "20261127020000_agent_invitations", "20261128010000_password_recovery", "20261128020000_property_drafts"]) {
     const sql = await readFile(`prisma/migrations/${migration}/migration.sql`, "utf8");
     for (const statement of sql.split(";").filter(part => part.trim())) await db.$executeRawUnsafe(statement);
   }
@@ -82,7 +85,7 @@ before(async () => {
   assert.equal(bootstrapResults.filter(result => result.status === "rejected").length, 1);
   assert(created[0].status === "fulfilled");
   adminId = created[0].value;
-  backend = createServer(createApp({ appOrigin: origin, bffSharedSecret: key }, service));
+  backend = createServer(createApp({ appOrigin: origin, bffSharedSecret: key }, service, new PropertyService(db)));
   api = await listen(backend);
 }, { timeout: 30_000 });
 
@@ -499,6 +502,132 @@ test("role middleware rejects Agent for Administrator operation and limiter igno
   } finally { await close(server); }
 });
 
+test("draft Zod validation rejects invalid prices, fields, ranges and conditional contradictions", () => {
+  for (const priceNaira of ["0","-1","1.5","1e6","9223372036854775808","abc",100]) {
+    assert.throws(() => parseInput(contentSchema, { priceNaira }), denied(422));
+  }
+  for (const content of [{ bedrooms:21 }, { bedrooms:-1 }, { parkingSpaces:1.1 }, { floorAreaSqm:"0" }, { plotSizeSqm:"1.001" },
+    { floorAreaSqm:"10000000000" }, { title:"short" }, { description:"short" }, { state:"Unknown" }, { showExactAddress:"false" }]) {
+    assert.throws(() => parseInput(contentSchema, content), denied(422));
+  }
+  assert.equal(states.length,37);
+  for (const state of states) assert.equal(parseInput(contentSchema, { state }).state,state);
+  assert.throws(() => parseInput(contentSchema, { ownerId:adminId }),denied(400));
+  assert.throws(() => normalizeContent({}, { propertyType:"LAND",bedrooms:1 }),denied(422));
+  assert.throws(() => normalizeContent({}, { propertyType:"OFFICE",plotSizeSqm:"1" }),denied(422));
+  assert.throws(() => normalizeContent({}, { purpose:"FOR_SALE",rentPeriod:"PER_MONTH" }),denied(422));
+  assert.deepEqual(normalizeContent({ propertyType:"HOUSE",bedrooms:2,furnishing:"FURNISHED",floorAreaSqm:"50" }, { propertyType:"LAND" }),
+    { propertyType:"LAND",bedrooms:null,furnishing:null,floorAreaSqm:null,bathrooms:null,toilets:null,parkingSpaces:null });
+  assert.equal(generatePropertySlug("A prime home in Lagos", "PH-000123"),"a-prime-home-in-lagos-000123");
+  assert.notEqual(generatePropertySlug("Same Title","PH-000123"),generatePropertySlug("Same Title","PH-000124"));
+});
+
+test("agents create, retrieve, filter and manually edit incomplete own drafts with stale-write protection", async () => {
+  time = Date.now();
+  const agent = await recoveryUser("draft-owner@example.test");
+  const session = await service.login(agent.email,password);
+  const headers = { Authorization: `Bearer ${session.token}` };
+  const amenity = await db.amenity.create({data:{name:"Draft test parking"}});
+  const response = await apiFetch("/agent/properties",{method:"POST",headers,body:"{}"});
+  assert.equal(response.status,201);
+  const empty = (await response.json()).data;
+  assert.match(empty.reference,/^PH-\d{6,}$/);
+  assert.equal(empty.slug,null); assert.equal(empty.publishedAt,null); assert.equal(empty.status,"DRAFT");
+  assert.equal(empty.content.negotiable,false); assert.equal(empty.content.showExactAddress,true);
+  assert.equal(empty.content.title,null); assert(empty.missingRequirements.length > 0);
+  assert.equal(response.headers.get("ETag"),empty.etag);
+  assert.equal(response.headers.get("Location"),`/api/v1/agent/properties/${empty.id}`);
+  assert.equal((await apiFetch(`/agent/properties/${empty.id}`,{headers})).status,200);
+  const body = JSON.stringify({content:{title:"A private property draft",priceNaira:"9223372036854775807",propertyType:"HOUSE",bedrooms:0,exactAddress:"12 Example Street",showExactAddress:false},amenityIds:[amenity.id]});
+  assert.equal((await apiFetch(`/agent/properties/${empty.id}`,{method:"PATCH",headers,body})).status,428);
+  const changed = await apiFetch(`/agent/properties/${empty.id}`,{method:"PATCH",headers:{...headers,"If-Match":empty.etag},body});
+  assert.equal(changed.status,200);
+  const saved = (await changed.json()).data;
+  assert.equal(saved.content.priceNaira,"9223372036854775807"); assert.equal(saved.content.exactAddress,"12 Example Street");
+  assert.equal(saved.content.showExactAddress,false); assert.equal(saved.content.bedrooms,0); assert.equal(saved.version,2);
+  assert.equal((await apiFetch(`/agent/properties/${empty.id}`,{method:"PATCH",headers:{...headers,"If-Match":empty.etag},body})).status,412);
+  const outcomes = await Promise.all([1,2].map(index => apiFetch(`/agent/properties/${empty.id}`,{method:"PATCH",headers:{...headers,"If-Match":saved.etag},body:JSON.stringify({content:{city:"Test city "+index}})})));
+  assert.deepEqual(outcomes.map(item=>item.status).sort(),[200,412]);
+  const list = await apiFetch("/agent/properties?status=DRAFT&page=1&pageSize=1&sort=created_desc",{headers});
+  assert.equal(list.status,200); const data = await list.json();
+  assert.equal(data.pagination.total,1); assert.equal(data.data[0].id,empty.id); assert.match(list.headers.get("Cache-Control")!,/no-store/);
+  assert.equal((await apiFetch("/agent/properties?ownerId="+agent.id,{headers})).status,400);
+  assert.equal((await apiFetch("/agent/properties?page=1&page=2",{headers})).status,400);
+  assert.equal((await apiFetch("/agent/properties?status=ARCHIVED",{headers})).status,422);
+  assert.equal((await (await apiFetch("/agent/properties?rejectedOnly=true",{headers})).json()).pagination.total,0);
+  const audit = await db.auditLog.findMany({where:{propertyId:empty.id}});
+  assert.equal(audit.length,3); assert(!JSON.stringify(audit).includes("Example Street"));
+  assert.equal((await apiFetch("/public/properties/"+empty.id)).status,404);
+});
+
+test("residential, commercial and land draft edits clear irrelevant fields and preserve valid partial values", async () => {
+  const session = await service.login("draft-owner@example.test",password);
+  const headers = { Authorization: `Bearer ${session.token}` };
+  const created = await apiFetch("/agent/properties",{method:"POST",headers,body:JSON.stringify({content:{propertyType:"HOUSE",bedrooms:3,bathrooms:2,toilets:2,furnishing:"FURNISHED",parkingSpaces:1,floorAreaSqm:"12.50",purpose:"FOR_RENT",rentPeriod:"PER_YEAR",state:"Akwa Ibom"}})});
+  assert.equal(created.status,201); let draft = (await created.json()).data;
+  assert.equal(draft.content.state,"Akwa Ibom");
+  for (const content of [{propertyType:"OFFICE",floorAreaSqm:"0.01"},{propertyType:"LAND",plotSizeSqm:"250.50",titleDocumentType:"Owner-described document"},{purpose:"FOR_SALE"}]) {
+    const edit = await apiFetch(`/agent/properties/${draft.id}`,{method:"PATCH",headers:{...headers,"If-Match":draft.etag},body:JSON.stringify({content})});
+    assert.equal(edit.status,200); draft = (await edit.json()).data;
+  }
+  for (const key of ["bedrooms","bathrooms","toilets","furnishing","parkingSpaces","floorAreaSqm","rentPeriod"]) assert.equal(draft.content[key],null);
+  assert.equal(draft.content.plotSizeSqm,"250.5");
+  const inactive = await db.amenity.create({data:{name:"Inactive amenity",isActive:false}});
+  assert.equal((await apiFetch("/agent/properties",{method:"POST",headers,body:JSON.stringify({amenityIds:[inactive.id]})})).status,422);
+});
+
+test("duplication copies content and amenities into a fresh neutral draft without source workflow identity", async () => {
+  const session = await service.login("draft-owner@example.test",password);
+  const headers = { Authorization: `Bearer ${session.token}` };
+  const source = await db.property.findFirstOrThrow({where:{ownerId:session.user.id,title:"A private property draft"}});
+  await db.property.update({where:{id:source.id},data:{slug:generatePropertySlug(source.title!,source.reference),publishedAt:new Date(),verified:true,verifiedById:adminId,verifiedAt:new Date(),submittedAt:new Date(),rejectionReason:"Private rejection"}});
+  const duplicate = await apiFetch(`/agent/properties/${source.id}/duplicates`,{method:"POST",headers,body:"{}"});
+  assert.equal(duplicate.status,201); const copy = (await duplicate.json()).data;
+  assert.notEqual(copy.reference,source.reference); assert.notEqual(copy.id,source.id);
+  assert.equal(copy.content.exactAddress,source.exactAddress); assert.equal(copy.content.showExactAddress,false);
+  assert.equal(copy.amenityIds.length,1); assert.equal(copy.version,1);
+  for (const key of ["slug","publishedAt","submittedAt","archivedAt","rejectionReason","verifiedById","verifiedAt","featuredAt"]) assert.equal(copy[key],null);
+  assert.equal(copy.verified,false); assert.equal(copy.featured,false); assert.equal(copy.viewCount,"0"); assert.deepEqual(copy.gallery,[]);
+  const events = await db.auditLog.findMany({where:{propertyId:copy.id}});
+  assert.equal(events.length,1); assert.equal(events[0].action,"PROPERTY_DUPLICATED");
+  const current = (await (await apiFetch(`/agent/properties/${source.id}`,{headers})).json()).data;
+  const materialEdit = await apiFetch(`/agent/properties/${source.id}`,{method:"PATCH",headers:{...headers,"If-Match":current.etag},body:JSON.stringify({content:{priceNaira:"100"}})});
+  assert.equal(materialEdit.status,200);
+  const materialResult = (await materialEdit.json()).data;
+  assert.equal(materialResult.verified,false); assert.equal(materialResult.verifiedById,null); assert.equal(materialResult.verifiedAt,null);
+});
+
+test("ownership and role checks prevent direct and stale cross-agent property access", async () => {
+  const other = await recoveryUser("other-draft-owner@example.test");
+  const session = await service.login(other.email,password);
+  const admin = await service.login("admin@example.test",password);
+  const source = await db.property.findFirstOrThrow({where:{title:"A private property draft"}});
+  const headers = { Authorization: `Bearer ${session.token}` };
+  assert.equal((await apiFetch("/agent/properties",{method:"POST",body:"{}"})).status,401);
+  assert.equal((await apiFetch("/agent/properties",{method:"POST",headers:{Authorization:`Bearer ${admin.token}`},body:"{}"})).status,403);
+  for (const options of [{method:"GET"},{method:"PATCH",body:"{}",headers:{...headers,"If-Match":'"stale"'}},{method:"POST",body:"{}"}]) {
+    const suffix = options.method === "POST" ? "/duplicates" : "";
+    assert.equal((await apiFetch(`/agent/properties/${source.id}`+suffix,{...options,headers:options.headers??headers})).status,404);
+  }
+  assert.equal((await (await apiFetch("/agent/properties",{headers})).json()).pagination.total,0);
+  const owner = await service.login("draft-owner@example.test",password);
+  await db.property.update({where:{id:source.id},data:{ownerId:other.id,version:{increment:1}}});
+  assert.equal((await apiFetch(`/agent/properties/${source.id}`,{headers:{Authorization:`Bearer ${owner.token}`}})).status,404);
+  await db.user.update({where:{id:other.id},data:{accountStatus:"DEACTIVATED",deactivatedAt:new Date()}});
+  assert.equal((await apiFetch("/agent/properties",{headers})).status,401);
+  await assert.rejects(db.property.update({where:{id:source.id},data:{priceNaira:0n}}));
+});
+
+test("concurrent references remain unique beyond six digits", async () => {
+  const session = await service.login("draft-owner@example.test",password);
+  await db.$queryRaw`SELECT setval('property_reference_seq',999999)`;
+  const requests = await Promise.all(Array.from({length:4},()=>apiFetch("/agent/properties",{method:"POST",headers:{Authorization:`Bearer ${session.token}`},body:"{}"})));
+  assert(requests.every(response=>response.status===201));
+  const drafts = await Promise.all(requests.map(response=>response.json()));
+  assert.equal(new Set(drafts.map(({data})=>data.reference)).size,4);
+  assert(drafts.every(({data})=>/^PH-100000[0-3]$/.test(data.reference)));
+});
+
 test("real Next BFF sets secure host-only cookie, strips secrets, enforces CSRF and forwards only the cookie credential", { timeout: 40_000 }, async () => {
   // Restore wall clock before issuing browser cookies after expiry tests used a fake clock.
   time = Date.now();
@@ -572,6 +701,26 @@ test("real Next BFF sets secure host-only cookie, strips secrets, enforces CSRF 
   assert.equal(change.status,204);
   assert.match(change.headers.get("Set-Cookie")!,/Max-Age=0/);
   assert.equal((await fetch(bff+"/api/v1/me", {headers:{Cookie:newCookie}})).status,401);
+  const propertyLogin = await fetch(bff+"/api/v1/auth/sign-in", {method:"POST",headers,body:JSON.stringify({email:"bff-agent@example.test",password:password+"final"})});
+  assert.equal(propertyLogin.status,200);
+  const propertyCookie = propertyLogin.headers.get("Set-Cookie")!.split(";")[0];
+  const propertyHeaders = {...headers,Cookie:propertyCookie};
+  assert.equal((await fetch(bff+"/api/v1/agent/properties",{method:"POST",headers:{...headers,Cookie:sessionCookie},body:"{}"})).status,403);
+  assert.equal((await fetch(bff+"/api/v1/agent/properties",{method:"POST",headers:{...propertyHeaders,Origin:"https://evil.test"},body:"{}"})).status,403);
+  const propertyCreate = await fetch(bff+"/api/v1/agent/properties",{method:"POST",headers:propertyHeaders,body:JSON.stringify({content:{title:"BFF property draft",exactAddress:"Private test address",showExactAddress:false}})});
+  assert.equal(propertyCreate.status,201);
+  assert.equal(propertyCreate.headers.get("X-Session-Token"),null);
+  const propertyDraft = (await propertyCreate.json()).data;
+  const propertyRead = await fetch(bff+"/api/v1/agent/properties/"+propertyDraft.id,{headers:propertyHeaders});
+  assert.equal(propertyRead.status,200); assert.match(propertyRead.headers.get("Cache-Control")!,/no-store/);
+  const propertyEdit = await fetch(bff+"/api/v1/agent/properties/"+propertyDraft.id,{method:"PATCH",headers:{...propertyHeaders,"If-Match":propertyDraft.etag},body:JSON.stringify({content:{priceNaira:"123456789012345"}})});
+  assert.equal(propertyEdit.status,200); assert.equal((await propertyEdit.json()).data.content.priceNaira,"123456789012345");
+  const propertyCopy = await fetch(bff+"/api/v1/agent/properties/"+propertyDraft.id+"/duplicates",{method:"POST",headers:propertyHeaders,body:"{}"});
+  assert.equal(propertyCopy.status,201);
+  const propertyList = await fetch(bff+"/api/v1/agent/properties?status=DRAFT&pageSize=1",{headers:propertyHeaders});
+  assert.equal(propertyList.status,200); assert.equal((await propertyList.json()).pagination.total,2);
+  assert.equal((await fetch(bff+"/api/v1/agent/properties?ownerId="+adminId,{headers:propertyHeaders})).status,400);
+  assert.equal((await fetch(bff+"/api/v1/agent/properties",{headers:{Authorization:`Bearer ${propertyCookie}`}})).status,401);
   assert.equal((await fetch(bff+"/api/v1/auth/sign-out",{method:"POST",headers:{...headers,Cookie:sessionCookie},body:"{}"})).status,204);
   const replay = await fetch(bff+"/api/v1/me", {headers:{Cookie:sessionCookie}});
   assert.equal(replay.status,401);

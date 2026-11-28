@@ -20,7 +20,7 @@ The scope audit is complete. This documentation synchronization is prepared for 
 | PH-DESIGN-001 | DOC-06 and DOC-07 synchronized to scope | Documentation prepared for review; no domain schema/migration implemented |
 | PH-DESIGN-002 | DOC-08 API contracts | Prepared for owner review; A01-A03 transport details resolved by the authorized authentication slice |
 | PH-DESIGN-003, PH-DESIGN-004 | Remaining workflow/security design deliverables below | Authentication subset resolved in DOC-08 Section 1.5; other scoped work remains |
-| Domain features/integration/quality/release | User/Session/Invitation/PasswordResetToken plus focused account-lifecycle audit events; property/inquiry/etc. models absent | Remaining work planned; local slice verification below does not establish release/owner acceptance |
+| Domain features/integration/quality/release | Auth models plus Property/Amenity/PropertyAmenity and focused account/property audit events; image/inquiry models absent | Remaining work planned; local slice verification below does not establish release/owner acceptance |
 
 A file or commit proves presence, not passing tests, deployment or owner acceptance. Do not recreate existing foundations or mark them accepted from this table alone.
 
@@ -52,6 +52,14 @@ The owner explicitly authorized administrator agent creation, resend, single-use
 - Reused ZeptoMail with a trusted-origin reset URL and mocked transport/provider HTTP in tests. In-process email delivery may be interrupted by restart; user-requested reissuance after cooldown is the recovery path. No real email, frontend UI, Google authentication, deployment or additional planning document was created.
 - Verification: 23 automated tests passed, including successful recovery, unknown/inactive/unactivated responses, mail failure, expired/replaced/reused tokens, concurrent consumption, current-password failure, authorization, session revocation, rate limits, audit sanitization and real Next BFF cookie/CSRF behavior. Backend source/tool/test TypeScript and build, Prisma validation, frontend lint/type check/production build and whitespace checks passed. Temporary test schemas were removed; public local data remained one existing user, zero sessions/reset tokens.
 - General account deactivation/reactivation, profile management, broader audit endpoints, frontend design/implementation and deployed provider verification remain outside this slice. Full roadmap/owner acceptance remains pending.
+
+### First property draft slice - 28 November 2026
+
+- The owner authorized a bounded PH-DATA-001/PH-LIST-001 slice: incomplete manual Draft creation, own-draft list/read/edit and content/amenity-only duplication. Implemented the Draft subset of L02-L05/L08 with server-side Agent/session/current-owner checks, typed validation, opaque version ETags, audit events and explicit non-visual Next BFF handlers.
+- Additive migration `20261128020000_property_drafts` introduces Property, Amenity/PropertyAmenity, enums and owner/verifier/audit relationships, checks and a sequence-backed reference function that grows beyond six digits. Applied only to confirmed loopback `prime_haven_dev` after a guarded pg_dump backup; all five migrations are up to date. Prior migrations and existing data were preserved.
+- Slug generation is implemented/tested for first publication, while all newly created/duplicated drafts retain null slug/publication date as approved. Draft validation follows residential/commercial/land applicability, signed-BigInt whole-naira prices, decimal area bounds and canonical Nigerian states. Hidden exact addresses remain available only in the authorized private draft projection; public data access is not implemented.
+- Verification: 29 combined auth/property tests passed against real PostgreSQL in a fresh temporary schema and a built Next.js server. Covers Zod invalid inputs/type changes, partial drafts/defaults, reference concurrency beyond six digits, pagination/filtering, manual editing/stale-write races, neutral duplication, material-edit Verified clearing, ownership/role/deactivation and BFF cookie/CSRF/precondition forwarding. Backend source/tool/test TypeScript/build, Prisma validation, frontend lint/type check/production build passed.
+- Uploads, permanent deletion, submission, moderation, public discovery, broader lifecycle access and frontend UI remain outside this task. Other models remain designs; this is not acceptance of the entire PH-LIST-001 task or release.
 
 ## 2. ID reconciliation and phase ownership
 

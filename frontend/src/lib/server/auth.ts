@@ -4,9 +4,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 type Operation = "sign-in" | "sign-out" | "me" | "create-agent" | "resend-invitation" | "accept-invitation" | "password-reset-requests" | "password-resets" | "change-password";
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
-const NO_STORE = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Vary": "Cookie" };
+export const NO_STORE = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Vary": "Cookie" };
 
-function configuration() {
+export function configuration() {
   const app = new URL(process.env.APP_ORIGIN ?? process.env.SITE_URL ?? "http://localhost:3000");
   const api = new URL(process.env.API_BASE_URL ?? "http://localhost:3001");
   for (const url of [app, api]) {
@@ -22,11 +22,11 @@ function configuration() {
     cookie: app.protocol === "https:" ? "__Host-ph-session" : "ph-session" };
 }
 
-function failure(status: number, code: string, message: string) {
+export function failure(status: number, code: string, message: string) {
   return NextResponse.json({ error: { status, code, message, fields: [], requestId: randomUUID() } }, { status, headers: NO_STORE });
 }
 
-async function boundedBody(request: NextRequest): Promise<string> {
+export async function boundedBody(request: NextRequest, maxBytes = 8192): Promise<string> {
   if (!request.body) return "{}";
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -35,7 +35,7 @@ async function boundedBody(request: NextRequest): Promise<string> {
     const part = await reader.read();
     if (part.done) break;
     bytes += part.value.byteLength;
-    if (bytes > 8192) { await reader.cancel(); throw new RangeError("Body too large."); }
+    if (bytes > maxBytes) { await reader.cancel(); throw new RangeError("Body too large."); }
     chunks.push(part.value);
   }
   return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks));

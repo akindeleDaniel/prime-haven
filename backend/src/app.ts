@@ -6,8 +6,10 @@ import { AuthService } from "./auth/service.js";
 import { trustedTransport } from "./auth/middleware.js";
 import { authRouter } from "./routes/auth.js";
 import { ApiError, errorHandler, requestContext } from "./http/errors.js";
+import { PropertyService } from "./properties/service.js";
+import { propertyRouter } from "./routes/properties.js";
 
-export function createApp(config: Pick<Environment, "appOrigin" | "bffSharedSecret"> = getEnvironment(), service = new AuthService(prisma)): Express {
+export function createApp(config: Pick<Environment, "appOrigin" | "bffSharedSecret"> = getEnvironment(), service = new AuthService(prisma), properties = new PropertyService(prisma)): Express {
   const app = express();
 
   app.disable("x-powered-by");
@@ -15,7 +17,12 @@ export function createApp(config: Pick<Environment, "appOrigin" | "bffSharedSecr
   app.set("trust proxy", false);
   app.use(requestContext);
   app.use("/health", healthRouter);
-  app.use("/api/v1", trustedTransport(config), express.json({ limit: "8kb", strict: true }), authRouter(service));
+  const authJson = express.json({ limit: "8kb", strict: true });
+  const propertyJson = express.json({ limit: "32kb", strict: true });
+  app.use("/api/v1", trustedTransport(config), (request, response, next) => {
+    const parse = request.path === "/agent/properties" || request.path.startsWith("/agent/properties/") ? propertyJson : authJson;
+    parse(request, response, next);
+  }, propertyRouter(service, properties), authRouter(service));
   app.use((_request, _response) => { throw new ApiError(404, "NOT_FOUND", "Resource not found."); });
   app.use(errorHandler);
 

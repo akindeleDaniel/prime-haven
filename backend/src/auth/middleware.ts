@@ -19,7 +19,6 @@ export function trustedTransport(config: Pick<Environment, "appOrigin" | "bffSha
     const supplied = Buffer.from(request.get("X-BFF-Key") ?? "");
     const expected = Buffer.from(config.bffSharedSecret);
     if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new ApiError(403, "FORBIDDEN", "Trusted server transport is required.");
-    if (Object.keys(request.query).length) throw new ApiError(400, "INVALID_REQUEST", "Query parameters are not supported.");
     if (request.method !== "GET" && request.method !== "HEAD") {
       if (request.get("Origin") !== config.appOrigin || request.get("X-Prime-Haven-CSRF") !== "1") throw new ApiError(403, "CSRF_REJECTED", "Request origin could not be verified.");
       if (!request.is("application/json")) throw new ApiError(415, "UNSUPPORTED_MEDIA_TYPE", "Use application/json.");

@@ -56,6 +56,14 @@ See [the implemented authentication transport contract](docs/08_API_CONTRACTS.md
 
 ## Verification
 
+The first property slice supports `GET/POST /api/v1/agent/properties`,
+`GET/PATCH /api/v1/agent/properties/{id}` and `POST /api/v1/agent/properties/{id}/duplicates`.
+Use an active, activated Agent session, the same CSRF headers on writes, and the returned ETag as If-Match
+for PATCH. Empty create bodies create incomplete drafts; supplied values must be valid. List filters are
+page/pageSize/status/rejectedOnly/sort; this slice returns only owned Drafts. Duplicate copies content and
+amenities into a new neutral Draft with a fresh reference. Draft slugs stay null until first publication.
+See DOC-08 Section 1.8 for bounds and scope. Images, submissions, moderation, public discovery and UI are not implemented.
+
 From `frontend`: `npm run lint`, `npx tsc --noEmit`, `npm run build`.
 Then from `backend`: `npm run type-check`, `npm run type-check:tools`, `npm run build`, `npm test`.
 On Windows PowerShell with scripts disabled, use `npm.cmd`/`npx.cmd` for these commands.

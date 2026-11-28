@@ -1,11 +1,17 @@
 import { createHash } from "node:crypto";
 import { Router } from "express";
+import { ApiError } from "../http/errors.js";
 import { bearer, currentUser, loginRateLimit, requireAuthentication, requireRoles } from "../auth/middleware.js";
 import type { AuthService } from "../auth/service.js";
 import { agentCreateSchema, emptySchema, loginSchema, parseInput } from "../auth/validation.js";
 
 export function authRouter(service: AuthService): Router {
   const router = Router();
+  router.use((request, _response, next) => {
+    if (request.path.startsWith("/agent/properties")) return next("router");
+    if (Object.keys(request.query).length) throw new ApiError(400, "INVALID_REQUEST", "Query parameters are not supported.");
+    next();
+  });
   router.post("/auth/password-reset-requests", loginRateLimit(30), async (request, response) => {
     await service.requestPasswordReset(request.body);
     response.status(202).json({ data: { message: "If eligible, password reset instructions will be sent." } });

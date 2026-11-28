@@ -30,11 +30,15 @@ enum AuditAction {
   PASSWORD_RESET_REQUESTED
   PASSWORD_RESET
   PASSWORD_CHANGED
+  PROPERTY_CREATED
+  PROPERTY_EDITED
+  PROPERTY_DUPLICATED
 }
 
 enum AuditSubjectType {
   USER
   SECURITY
+  PROPERTY
 }
 
 model User {
@@ -58,6 +62,8 @@ model User {
   passwordResetTokens PasswordResetToken[]
   actorAuditEvents    AuditLog[]    @relation("AuditActor")
   subjectAuditEvents  AuditLog[]    @relation("AuditAffectedUser")
+  properties          Property[]   @relation("PropertyOwner")
+  verifiedProperties  Property[]   @relation("PropertyVerifier")
 }
 
 model PasswordResetToken {
@@ -107,6 +113,7 @@ model AuditLog {
   id               String           @id @default(uuid()) @db.Uuid
   actorId          String?          @db.Uuid
   affectedUserId   String?          @db.Uuid
+  propertyId       String?          @db.Uuid
   action           AuditAction
   subjectType      AuditSubjectType
   subjectReference String
@@ -114,7 +121,143 @@ model AuditLog {
   createdAt        DateTime         @default(now()) @db.Timestamptz(3)
   actor            User?            @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
   affectedUser     User?            @relation("AuditAffectedUser", fields: [affectedUserId], references: [id], onDelete: SetNull)
+  property         Property?        @relation(fields: [propertyId], references: [id], onDelete: SetNull)
 
   @@index([action, createdAt])
   @@index([affectedUserId, createdAt])
+}
+
+enum PropertyPurpose {
+  FOR_SALE
+  FOR_RENT
+}
+enum PropertyType {
+  HOUSE
+  APARTMENT_FLAT
+  DUPLEX
+  TERRACE
+  LAND
+  COMMERCIAL
+  OFFICE
+  SHOP
+}
+enum RentPeriod {
+  PER_YEAR
+  PER_MONTH
+}
+enum Furnishing {
+  UNFURNISHED
+  SEMI_FURNISHED
+  FURNISHED
+}
+enum PropertyStatus {
+  DRAFT
+  PENDING_REVIEW
+  PUBLISHED
+  UNDER_OFFER
+  CLOSED
+  ARCHIVED
+}
+enum NigerianState {
+  Abia
+  Adamawa
+  Akwa_Ibom @map("Akwa Ibom")
+  Anambra
+  Bauchi
+  Bayelsa
+  Benue
+  Borno
+  Cross_River @map("Cross River")
+  Delta
+  Ebonyi
+  Edo
+  Ekiti
+  Enugu
+  FCT
+  Gombe
+  Imo
+  Jigawa
+  Kaduna
+  Kano
+  Katsina
+  Kebbi
+  Kogi
+  Kwara
+  Lagos
+  Nasarawa
+  Niger
+  Ogun
+  Ondo
+  Osun
+  Oyo
+  Plateau
+  Rivers
+  Sokoto
+  Taraba
+  Yobe
+  Zamfara
+}
+
+model Property {
+  id                String          @id @default(uuid()) @db.Uuid
+  ownerId           String          @db.Uuid
+  reference         String          @unique @default(dbgenerated("next_property_reference()"))
+  status            PropertyStatus  @default(DRAFT)
+  version           Int             @default(1)
+  title             String?
+  description       String?
+  purpose           PropertyPurpose?
+  propertyType      PropertyType?
+  priceNaira        BigInt?
+  negotiable        Boolean         @default(false)
+  state             NigerianState?
+  city              String?
+  neighbourhood     String?
+  exactAddress      String?
+  showExactAddress  Boolean         @default(true)
+  rentPeriod        RentPeriod?
+  furnishing        Furnishing?
+  bedrooms          Int?
+  bathrooms         Int?
+  toilets           Int?
+  parkingSpaces     Int?
+  floorAreaSqm      Decimal?        @db.Decimal(12, 2)
+  plotSizeSqm       Decimal?        @db.Decimal(12, 2)
+  titleDocumentType String?
+  slug              String?         @unique
+  publishedAt       DateTime?       @db.Timestamptz(3)
+  submittedAt       DateTime?       @db.Timestamptz(3)
+  archivedAt        DateTime?       @db.Timestamptz(3)
+  rejectionReason   String?
+  verified          Boolean         @default(false)
+  verifiedById      String?         @db.Uuid
+  verifiedAt        DateTime?       @db.Timestamptz(3)
+  featured          Boolean         @default(false)
+  featuredAt        DateTime?       @db.Timestamptz(3)
+  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @db.Timestamptz(3)
+  owner             User            @relation("PropertyOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  verifier          User?           @relation("PropertyVerifier", fields: [verifiedById], references: [id], onDelete: Restrict)
+  amenities         PropertyAmenity[]
+  auditEvents       AuditLog[]
+
+  @@index([ownerId, status, updatedAt, id])
+}
+
+model Amenity {
+  id        String           @id @default(uuid()) @db.Uuid
+  name      String           @unique
+  isActive  Boolean          @default(true)
+  createdAt DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime         @updatedAt @db.Timestamptz(3)
+  properties PropertyAmenity[]
+}
+
+model PropertyAmenity {
+  propertyId String   @db.Uuid
+  amenityId  String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  amenity    Amenity  @relation(fields: [amenityId], references: [id], onDelete: Restrict)
+  @@id([propertyId, amenityId])
+  @@index([amenityId, propertyId])
 }

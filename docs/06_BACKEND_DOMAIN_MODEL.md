@@ -10,6 +10,8 @@
 
 ## 1. Scope and model boundaries
 
+**28 November property implementation:** The first listing slice adds Property owner/verifier relationships, Amenity/PropertyAmenity and focused property audit events for manual Draft creation/edit/duplication. Other lifecycle, image, inquiry and public-discovery behavior remains designed. DOC-08 Section 1.8 records the bounded implementation and DOC-05 its evidence.
+
 This logical model explains entities, relationships and business behaviour. DOC-07 translates it into PostgreSQL/Prisma structures. FRS defines product behaviour; technical metadata below supports that behaviour and is not a new feature. Current data is stored once on Property; there is no separate revision/history model. Browser favourites need no database table. Approximate views need no visitor identity or server session-marker records.
 
 DOC-02 records superseded decisions. The approved scope and necessary design details are maintained in this existing file; superseded mechanisms are recorded in DOC-02. All 38 REV decisions are approved; old questions about reopening, Under Offer edits, title enums, zero Featured, separate revisions or trigger ownership are not active owner blockers.
